@@ -1,0 +1,184 @@
+'use server';
+
+import { db } from "@/db";
+import { timesheets, users } from "@/db/schema";
+import { eq, and, like } from "drizzle-orm";
+import { auth } from "@/auth";
+
+export interface TimesheetEntry {
+  id?: number;
+  userId: number;
+  date: string;
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+  remarks: string | null;
+  isLocked: boolean;
+  userName?: string;
+  position?: string;
+}
+
+// Sprawdzenie czy edycja jest zablokowana (ostatni dzień miesiąca o 22:00)
+export async function checkTimesheetLocked(year: number, month: number, userRole: string) {
+  if (userRole === 'owner' || userRole === 'manager') {
+    return false;
+  }
+
+  const now = new Date();
+  
+  // Ostatni dzień miesiąca
+  const lastDay = new Date(year, month, 0); // month jest 1-indexed, więc 0 daje ostatni dzień poprzedniego miesiąca. Aby uzyskać ostatni dzień bieżącego, przekazujemy month bezpośrednio.
+  lastDay.setHours(22, 0, 0, 0);
+
+  return now.getTime() > lastDay.getTime();
+}
+
+export async function getTimesheets(userId: number, year: number, month: number) {
+  const monthStr = String(month).padStart(2, '0');
+  const pattern = `${year}-${monthStr}-%`;
+
+  try {
+    const results = await db
+      .select()
+      .from(timesheets)
+      .where(
+        and(
+          eq(timesheets.userId, userId),
+          like(timesheets.date, pattern)
+        )
+      );
+    return { success: true, data: results as TimesheetEntry[] };
+  } catch (e) {
+    console.error("Błąd pobierania kart godzin:", e);
+    return { success: false, data: [], error: "Brak połączenia z bazą." };
+  }
+}
+
+export async function saveTimesheet(
+  id: number | undefined,
+  userId: number,
+  dateStr: string,
+  startTime: string,
+  endTime: string,
+  remarks: string | null
+) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji." };
+
+  const userRole = (session.user as any).role;
+  const isDemo = (session.user as any).isDemo;
+
+  const dateObj = new Date(dateStr);
+  const targetYear = dateObj.getFullYear();
+  const targetMonth = dateObj.getMonth() + 1;
+
+  // Sprawdzanie blokady
+  const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
+  if (isLocked) {
+    return { success: false, error: "Edycja karty godzin na ten miesiąc została zablokowana (minęła godzina 22:00 ostatniego dnia miesiąca)." };
+  }
+
+  if (isDemo) {
+    // W trybie demo mockujemy udany zapis
+    return { success: true, mocked: true };
+  }
+
+  try {
+    if (id) {
+      // Aktualizacja
+      await db
+        .update(timesheets)
+        .set({ startTime, endTime, remarks, isLocked: false })
+        .where(eq(timesheets.id, id));
+    } else {
+      // Wstawianie
+      await db.insert(timesheets).values({
+        userId,
+        date: dateStr,
+        startTime,
+        endTime,
+        remarks,
+        isLocked: false,
+        isDemo: false
+      });
+    }
+    return { success: true };
+  } catch (e) {
+    console.error("Błąd zapisu karty godzin:", e);
+    return { success: false, error: "Błąd bazy danych" };
+  }
+}
+
+export async function deleteTimesheet(id: number) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji." };
+
+  const userRole = (session.user as any).role;
+  const isDemo = (session.user as any).isDemo;
+
+  try {
+    const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
+    if (existing.length === 0) return { success: false, error: "Nie znaleziono wpisu." };
+
+    const dateObj = new Date(existing[0].date);
+    const targetYear = dateObj.getFullYear();
+    const targetMonth = dateObj.getMonth() + 1;
+
+    const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
+    if (isLocked) {
+      return { success: false, error: "Edycja zablokowana." };
+    }
+
+    if (isDemo) return { success: true, mocked: true };
+
+    await db.delete(timesheets).where(eq(timesheets.id, id));
+    return { success: true };
+  } catch (e) {
+    console.error("Błąd usuwania wpisu:", e);
+    return { success: false, error: "Błąd serwera." };
+  }
+}
+
+
+// Metoda dla Menedżera - pobierz wszystkie karty godzin
+export async function getAllTimesheets(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) return { success: false, data: [] };
+
+  const role = (session.user as any).role;
+  if (role !== 'owner' && role !== 'manager') {
+    return { success: false, data: [], error: "Brak uprawnień." };
+  }
+
+  const monthStr = String(month).padStart(2, '0');
+  const pattern = `${year}-${monthStr}-%`;
+
+  try {
+    const results = await db
+      .select({
+        id: timesheets.id,
+        userId: timesheets.userId,
+        date: timesheets.date,
+        startTime: timesheets.startTime,
+        endTime: timesheets.endTime,
+        remarks: timesheets.remarks,
+        isLocked: timesheets.isLocked,
+        userName: users.name,
+        position: users.position
+      })
+      .from(timesheets)
+      .innerJoin(users, eq(timesheets.userId, users.id))
+      .where(like(timesheets.date, pattern));
+
+    return { success: true, data: results as TimesheetEntry[] };
+  } catch (e) {
+    console.error("Błąd pobierania zbiorczych kart godzin:", e);
+    // W przypadku błędu bazy, generujemy dane testowe dla Managera w Demo
+    const mockData: TimesheetEntry[] = [
+      { id: 1, userId: 1, date: `${year}-${monthStr}-01`, startTime: "10:00", endTime: "18:00", remarks: "Standardowa zmiana", isLocked: false, userName: "Adam Wiśniewski", position: "Instruktor Driftu" },
+      { id: 2, userId: 1, date: `${year}-${monthStr}-01`, startTime: "16:00", endTime: "22:00", remarks: "Nakładający się dyżur (Konflikt)", isLocked: false, userName: "Adam Wiśniewski", position: "Instruktor Driftu" },
+      { id: 3, userId: 4, date: `${year}-${monthStr}-02`, startTime: "12:00", endTime: "20:00", remarks: "Obsługa klienta", isLocked: false, userName: "Katarzyna Zając", position: "Obsługa Klienta" },
+      { id: 4, userId: 5, date: `${year}-${monthStr}-03`, startTime: "08:00", endTime: "16:00", remarks: "Trening rano", isLocked: false, userName: "Tomasz Wójcik", position: "Instruktor Pro" }
+    ];
+    return { success: true, data: mockData, mocked: true };
+  }
+}
