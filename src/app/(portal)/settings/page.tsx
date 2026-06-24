@@ -25,7 +25,8 @@ import {
   saveSettingsAction, 
   getUsersAction, 
   createUserAction, 
-  deleteUserAction 
+  deleteUserAction,
+  testSmtpConnectionAction
 } from '@/app/actions/settingsActions';
 
 export default function SettingsPage() {
@@ -34,6 +35,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'smtp'>('users');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Dane użytkowników
@@ -152,6 +154,25 @@ export default function SettingsPage() {
       setStatusMsg({ type: 'error', text: 'Błąd połączenia z serwerem.' });
     } finally {
       setActionLoading(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleTestSmtpConnection = async () => {
+    setStatusMsg(null);
+    setTestLoading(true);
+
+    try {
+      const res = await testSmtpConnectionAction(smtpSettings);
+      if (res.success) {
+        setStatusMsg({ type: 'success', text: 'Połączenie z serwerem SMTP zostało nawiązane pomyślnie. Konfiguracja jest prawidłowa.' });
+      } else {
+        setStatusMsg({ type: 'error', text: `Błąd połączenia z serwerem SMTP: ${res.error}` });
+      }
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Błąd połączenia z serwerem testowym.' });
+    } finally {
+      setTestLoading(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -577,10 +598,22 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4">
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={handleTestSmtpConnection}
+                  disabled={actionLoading || testLoading}
+                  className="px-5 py-2.5 bg-[#1f1f1f] border border-white/10 hover:bg-[#282828] text-white text-xs font-bold rounded-lg uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {testLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-white"></div>
+                  ) : (
+                    'Testuj połączenie'
+                  )}
+                </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
+                  disabled={actionLoading || testLoading}
                   className="px-6 py-2.5 bg-gradient-to-r from-brand-red to-brand-gold text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-95 transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   {actionLoading ? (

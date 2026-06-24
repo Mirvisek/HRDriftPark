@@ -222,3 +222,44 @@ export async function deleteUserAction(userId: number) {
     return { success: false, error: "Błąd bazy danych przy usuwaniu użytkownika." };
   }
 }
+
+/**
+ * Testuje połączenie SMTP na podstawie przesłanej konfiguracji (przed zapisaniem)
+ */
+export async function testSmtpConnectionAction(config: {
+  smtp_host: string;
+  smtp_port: string;
+  smtp_secure: string;
+  smtp_user: string;
+  smtp_password: string;
+  smtp_from: string;
+}) {
+  await checkAuth();
+
+  const { smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password } = config;
+
+  if (!smtp_host || !smtp_user || !smtp_password) {
+    return { success: false, error: "Host, użytkownik oraz hasło są wymagane do przeprowadzenia testu." };
+  }
+
+  try {
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: smtp_host,
+      port: Number(smtp_port),
+      secure: smtp_secure === 'true',
+      auth: {
+        user: smtp_user,
+        pass: smtp_password,
+      },
+      connectTimeout: 8000, // 8 sekund timeoutu
+    } as any);
+
+    // Weryfikacja połączenia
+    await transporter.verify();
+    return { success: true };
+  } catch (e: any) {
+    console.error("[SMTP Test Error]:", e);
+    return { success: false, error: e.message || "Nieznany błąd podczas weryfikacji połączenia." };
+  }
+}
