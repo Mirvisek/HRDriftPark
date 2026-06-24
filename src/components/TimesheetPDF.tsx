@@ -5,8 +5,8 @@ import { TimesheetEntry } from '@/app/actions/timesheetActions';
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf' },
-    { src: 'https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4AMP6lQ.ttf', fontWeight: 'bold' }
+    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf' },
+    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf', fontWeight: 'bold' }
   ]
 });
 
@@ -33,6 +33,9 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     fontWeight: 'bold',
+  },
+  metaValue: {
+    fontWeight: 'normal',
   },
   table: {
     flexDirection: 'column',
@@ -224,14 +227,14 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
         </Text>
 
         {/* Dane pracownika */}
-        <Text style={styles.metaRow}>
+        <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>Imię i nazwisko: </Text>
-          <Text>{employeeName}</Text>
-        </Text>
-        <Text style={styles.metaRow}>
+          <Text style={styles.metaValue}>{employeeName}</Text>
+        </View>
+        <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>Stanowisko: </Text>
-          <Text>{position}</Text>
-        </Text>
+          <Text style={styles.metaValue}>{position}</Text>
+        </View>
 
         {/* Siatka tabeli */}
         <View style={styles.table}>
