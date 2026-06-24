@@ -1,12 +1,16 @@
 import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
 import { TimesheetEntry } from '@/app/actions/timesheetActions';
 
-// Rejestracja czcionki Roboto wspierającej polskie znaki diakrytyczne z lokalnych plików w folderze public
+// Bezpieczne ładowanie czcionki Roboto wspierającej polskie znaki diakrytyczne (lokalnie w przeglądarce, CDN jako fallback)
+const isBrowser = typeof window !== 'undefined';
+const fontRegularUrl = isBrowser ? `${window.location.origin}/fonts/Roboto-Regular.ttf` : 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf';
+const fontBoldUrl = isBrowser ? `${window.location.origin}/fonts/Roboto-Bold.ttf` : 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf';
+
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: '/fonts/Roboto-Regular.ttf' },
-    { src: '/fonts/Roboto-Bold.ttf', fontWeight: 'bold' }
+    { src: fontRegularUrl },
+    { src: fontBoldUrl, fontWeight: 'bold' }
   ]
 });
 
@@ -164,7 +168,7 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
         }
       });
       hoursStr = dayHours > 0 ? dayHours.toFixed(2) : "";
-      signatureStr = `/[${employeeName}]/`;
+      signatureStr = `/${employeeName}/`;
     }
 
     rows.push(
