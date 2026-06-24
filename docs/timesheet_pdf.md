@@ -49,24 +49,22 @@ graph TD
 ### 3.1. Obsługa Polskich Znaków (Rejestracja Czcionki)
 Domyślne czcionki wbudowane w bibliotekę `react-pdf` (np. `Helvetica`, `Times-Roman`) obsługują wyłącznie kodowanie `WinAnsiEncoding`, w którym brakuje polskich znaków diakrytycznych. Próba ich użycia skutkuje brakiem znaków lub błędami renderowania.
 
-Problem ten został rozwiązany poprzez przekonwertowanie plików czcionki **Roboto** (wspierającej kodowanie Latin Extended) do formatu **Base64** i umieszczenie ich bezpośrednio w kodzie projektu (`src/lib/fontsBase64.ts`). 
+Problem ten został rozwiązany poprzez zarejestrowanie czcionki **Roboto** (wspierającej kodowanie Latin Extended) pobieranej bezpośrednio ze sprawdzonych, w pełni aktywnych i publicznych serwerów Google Fonts (`fonts.gstatic.com`). 
 
-Dzięki temu rozwiązaniu:
-- Czcionki są integralną częścią skompilowanego pakietu JavaScript aplikacji (zajmują tylko ok. 120 KB tekstu Base64).
-- Przeglądarka ładuje czcionki błyskawicznie bezpośrednio z pamięci operacyjnej, bez wykonywania jakichkolwiek zapytań HTTP.
-- Całkowicie wyeliminowano problemy związane z CORS, nagłówkami zabezpieczeń CSP, przerwami w dostępie do internetu czy uprawnieniami do odczytu plików na serwerze Linux VPS.
+Te linki (wersja `v51`) posiadają pełne wsparcie dla nagłówków CORS (`Access-Control-Allow-Origin: *`) i są bez problemu pobierane przez przeglądarkę użytkownika w momencie generowania pliku PDF:
+- **Regular**: `https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf`
+- **Bold**: `https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf`
 
 Rejestracja czcionki w kodzie:
 
 ```typescript
 import { Font } from '@react-pdf/renderer';
-import { robotoRegularBase64, robotoBoldBase64 } from '@/lib/fontsBase64';
 
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: robotoRegularBase64 }, // Regular (Base64 data URL)
-    { src: robotoBoldBase64, fontWeight: 'bold' } // Bold (Base64 data URL)
+    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf' }, // Regular
+    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf', fontWeight: 'bold' } // Bold
   ]
 });
 ```
