@@ -60,6 +60,7 @@ export default function TimesheetPage() {
         position={currentUser.position}
         monthName={monthNames[month]}
         year={year}
+        month={month}
       />
     );
   }, [entries, currentUser, month, year]);

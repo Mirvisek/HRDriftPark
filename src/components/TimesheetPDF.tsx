@@ -1,131 +1,80 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
 import { TimesheetEntry } from '@/app/actions/timesheetActions';
+
+// Rejestracja czcionki Roboto wspierającej polskie znaki diakrytyczne
+Font.register({
+  family: 'Roboto',
+  fonts: [
+    { src: 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf' },
+    { src: 'https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4AMP6lQ.ttf', fontWeight: 'bold' }
+  ]
+});
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
-    fontFamily: 'Helvetica',
+    paddingTop: 35,
+    paddingBottom: 35,
+    paddingHorizontal: 40,
+    fontFamily: 'Roboto',
     backgroundColor: '#ffffff',
-    fontSize: 10,
-    color: '#333333',
-  },
-  header: {
-    marginBottom: 20,
-    borderBottomWidth: 2,
-    borderBottomColor: '#ff3333',
-    paddingBottom: 15,
+    fontSize: 9,
+    color: '#000000',
   },
   title: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
-    color: '#111111',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 25,
   },
-  subtitle: {
-    fontSize: 8,
-    color: '#888888',
-    marginTop: 3,
-    letterSpacing: 1.5,
-  },
-  metaContainer: {
+  metaRow: {
+    fontSize: 10,
+    marginBottom: 6,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#f9f9f9',
-    padding: 12,
-    borderRadius: 6,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#eeeeee',
-  },
-  metaCol: {
-    flexDirection: 'column',
   },
   metaLabel: {
-    fontSize: 8,
-    color: '#888888',
-    textTransform: 'uppercase',
-    marginBottom: 3,
-  },
-  metaValue: {
-    fontSize: 11,
     fontWeight: 'bold',
-    color: '#111111',
   },
   table: {
     flexDirection: 'column',
-    borderWidth: 1,
-    borderColor: '#dddddd',
-    borderRadius: 6,
-    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderColor: '#000000',
+    marginTop: 20,
   },
-  tableHeader: {
+  tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
-    borderBottomWidth: 1,
-    borderBottomColor: '#dddddd',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  tableHeaderCell: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-    fontSize: 9,
+    backgroundColor: '#e0e0e0',
+    height: 28,
+    alignItems: 'center',
   },
   tableRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eeeeee',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  tableRowOdd: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eeeeee',
-    backgroundColor: '#fcfcfc',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  cellDate: { width: '25%' },
-  cellTime: { width: '15%' },
-  cellDuration: { width: '15%', textAlign: 'center' },
-  cellRemarks: { width: '45%' },
-  summaryContainer: {
-    marginTop: 20,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingRight: 10,
-  },
-  summaryText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#111111',
-  },
-  signatureSection: {
-    marginTop: 50,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  signatureBox: {
-    width: '45%',
-    flexDirection: 'column',
+    height: 18,
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#cccccc',
-    paddingTop: 10,
   },
-  signatureLabel: {
+  cell: {
+    borderBottomWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+    padding: 2,
+  },
+  cellText: {
     fontSize: 8,
-    color: '#888888',
-    marginBottom: 5,
+    textAlign: 'center',
   },
-  signatureName: {
-    fontSize: 10,
+  cellTextBold: {
+    fontSize: 8,
     fontWeight: 'bold',
-    color: '#333333',
-    fontStyle: 'italic',
+    textAlign: 'center',
   },
+  colDay: { width: '12%' },
+  colStart: { width: '18%' },
+  colEnd: { width: '18%' },
+  colHours: { width: '15%' },
+  colSig: { width: '37%' },
 });
 
 interface TimesheetPDFProps {
@@ -134,111 +83,186 @@ interface TimesheetPDFProps {
   position: string;
   monthName: string;
   year: number;
+  month?: number;
 }
 
-export function TimesheetPDF({ entries, employeeName, position, monthName, year }: TimesheetPDFProps) {
-  // Sortowanie wpisów chronologicznie
-  const sortedEntries = [...entries].sort((a, b) => a.date.localeCompare(b.date));
-
-  // Obliczenie sumy godzin
-  const calculateTotalHours = () => {
-    let total = 0;
-    entries.forEach(e => {
-      const [sh, sm] = e.startTime.split(':').map(Number);
-      const [eh, em] = e.endTime.split(':').map(Number);
-      const diffMin = (eh * 60 + em) - (sh * 60 + sm);
-      if (diffMin > 0) total += diffMin / 60;
-    });
-    return total.toFixed(2);
+export function TimesheetPDF({ entries, employeeName, position, monthName, year, month }: TimesheetPDFProps) {
+  // Mapowanie nazwy miesiąca na numer (1-12) jako fallback
+  const monthNamesMap: Record<string, number> = {
+    "Styczeń": 1, "Luty": 2, "Marzec": 3, "Kwiecień": 4, "Maj": 5, "Czerwiec": 6,
+    "Lipiec": 7, "Sierpień": 8, "Wrzesień": 9, "Październik": 10, "Listopad": 11, "Grudzień": 12
   };
+  const monthNumber = month || monthNamesMap[monthName] || 1;
 
-  const getDuration = (start: string, end: string) => {
-    const [sh, sm] = start.split(':').map(Number);
-    const [eh, em] = end.split(':').map(Number);
-    const diff = (eh * 60 + em) - (sh * 60 + sm);
-    if (diff <= 0) return '0.00h';
-    return `${(diff / 60).toFixed(2)}h`;
-  };
+  // Obliczenie liczby dni w miesiącu
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+
+  // Grupowanie wpisów według dnia miesiąca
+  const entriesByDay: Record<number, TimesheetEntry[]> = {};
+  entries.forEach(entry => {
+    if (!entry.date) return;
+    const parts = entry.date.split('-');
+    if (parts.length === 3) {
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(day)) {
+        if (!entriesByDay[day]) {
+          entriesByDay[day] = [];
+        }
+        entriesByDay[day].push(entry);
+      }
+    }
+  });
+
+  // Suma godzin dla całego miesiąca
+  let totalHours = 0;
+  entries.forEach(entry => {
+    const [sh, sm] = entry.startTime.split(':').map(Number);
+    const [eh, em] = entry.endTime.split(':').map(Number);
+    const diffMin = (eh * 60 + em) - (sh * 60 + sm);
+    if (diffMin > 0) {
+      totalHours += diffMin / 60;
+    }
+  });
+
+  const rows = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dayEntries = entriesByDay[d] || [];
+    
+    // Sortowanie wpisów z danego dnia chronologicznie
+    const sortedDayEntries = [...dayEntries].sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    let startTimeStr = "";
+    let endTimeStr = "";
+    let hoursStr = "";
+
+    if (sortedDayEntries.length > 0) {
+      if (sortedDayEntries.length === 1) {
+        startTimeStr = sortedDayEntries[0].startTime;
+        endTimeStr = sortedDayEntries[0].endTime;
+      } else {
+        startTimeStr = sortedDayEntries.map(e => e.startTime).join(', ');
+        endTimeStr = sortedDayEntries.map(e => e.endTime).join(', ');
+      }
+
+      let dayHours = 0;
+      sortedDayEntries.forEach(entry => {
+        const [sh, sm] = entry.startTime.split(':').map(Number);
+        const [eh, em] = entry.endTime.split(':').map(Number);
+        const diffMin = (eh * 60 + em) - (sh * 60 + sm);
+        if (diffMin > 0) {
+          dayHours += diffMin / 60;
+        }
+      });
+      hoursStr = dayHours > 0 ? dayHours.toFixed(2) : "";
+    }
+
+    rows.push(
+      <View key={d} style={styles.tableRow}>
+        {/* Dzień miesiąca */}
+        <View style={[styles.cell, styles.colDay]}>
+          <Text style={styles.cellTextBold}>{d}.</Text>
+        </View>
+        
+        {/* Rozpoczęcie pracy */}
+        <View style={[styles.cell, styles.colStart]}>
+          <Text style={styles.cellText}>{startTimeStr}</Text>
+        </View>
+        
+        {/* Zakończenie pracy */}
+        <View style={[styles.cell, styles.colEnd]}>
+          <Text style={styles.cellText}>{endTimeStr}</Text>
+        </View>
+        
+        {/* Ilość godzin */}
+        <View style={[styles.cell, styles.colHours]}>
+          <Text style={styles.cellText}>{hoursStr}</Text>
+        </View>
+        
+        {/* Podpis pracownika */}
+        <View style={[styles.cell, styles.colSig]}>
+          <Text style={styles.cellText}></Text>
+        </View>
+      </View>
+    );
+  }
+
+  const summaryRow = (
+    <View key="summary" style={styles.tableRow}>
+      {/* Razem: */}
+      <View style={[styles.cell, styles.colDay]}>
+        <Text style={styles.cellTextBold}>Razem:</Text>
+      </View>
+      
+      {/* Puste pole dla Rozpoczęcia */}
+      <View style={[styles.cell, styles.colStart]}>
+        <Text style={styles.cellText}></Text>
+      </View>
+      
+      {/* Puste pole dla Zakończenia */}
+      <View style={[styles.cell, styles.colEnd]}>
+        <Text style={styles.cellText}></Text>
+      </View>
+      
+      {/* Łączna ilość godzin */}
+      <View style={[styles.cell, styles.colHours]}>
+        <Text style={styles.cellTextBold}>{totalHours > 0 ? totalHours.toFixed(2) : ""}</Text>
+      </View>
+      
+      {/* Puste pole dla Podpisu */}
+      <View style={[styles.cell, styles.colSig]}>
+        <Text style={styles.cellText}></Text>
+      </View>
+    </View>
+  );
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        
-        {/* Nagłówek serwisu */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Drift Park Extreme</Text>
-          <Text style={styles.subtitle}>KARTA EWIDENCJI CZASU PRACY</Text>
-        </View>
+        {/* Tytuł główny */}
+        <Text style={styles.title}>
+          Lista obecności za m-c {monthName} {year} r.
+        </Text>
 
-        {/* Metadane pracownika */}
-        <View style={styles.metaContainer}>
-          <View style={styles.metaCol}>
-            <Text style={styles.metaLabel}>Pracownik</Text>
-            <Text style={styles.metaValue}>{employeeName}</Text>
-          </View>
-          <View style={styles.metaCol}>
-            <Text style={styles.metaLabel}>Stanowisko</Text>
-            <Text style={styles.metaValue}>{position}</Text>
-          </View>
-          <View style={styles.metaCol}>
-            <Text style={styles.metaLabel}>Miesiąc / Rok</Text>
-            <Text style={styles.metaValue}>{monthName} {year}</Text>
-          </View>
-        </View>
+        {/* Dane pracownika */}
+        <Text style={styles.metaRow}>
+          <Text style={styles.metaLabel}>Imię i nazwisko: </Text>
+          <Text>{employeeName}</Text>
+        </Text>
+        <Text style={styles.metaRow}>
+          <Text style={styles.metaLabel}>Stanowisko: </Text>
+          <Text>{position}</Text>
+        </Text>
 
-        {/* Tabela godzin */}
+        {/* Siatka tabeli */}
         <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderCell, styles.cellDate]}>Data</Text>
-            <Text style={[styles.tableHeaderCell, styles.cellTime]}>Start</Text>
-            <Text style={[styles.tableHeaderCell, styles.cellTime]}>Koniec</Text>
-            <Text style={[styles.tableHeaderCell, styles.cellDuration, { color: '#ffd700' }]}>Suma</Text>
-            <Text style={[styles.tableHeaderCell, styles.cellRemarks]}>Uwagi</Text>
-          </View>
-
-          {sortedEntries.length === 0 ? (
-            <View style={styles.tableRow}>
-              <Text style={{ width: '100%', textAlign: 'center', color: '#888888', fontStyle: 'italic', paddingVertical: 10 }}>
-                Brak wpisów w tym miesiącu.
-              </Text>
+          {/* Nagłówek */}
+          <View style={styles.tableHeaderRow}>
+            <View style={[styles.cell, styles.colDay]}>
+              <Text style={styles.cellTextBold}>Dzień</Text>
+              <Text style={styles.cellTextBold}>miesiąca</Text>
             </View>
-          ) : (
-            sortedEntries.map((entry, index) => {
-              const isOdd = index % 2 === 1;
-              const rowStyle = isOdd ? styles.tableRowOdd : styles.tableRow;
-              
-              return (
-                <View key={entry.id || index} style={rowStyle}>
-                  <Text style={styles.cellDate}>{entry.date}</Text>
-                  <Text style={styles.cellTime}>{entry.startTime}</Text>
-                  <Text style={styles.cellTime}>{entry.endTime}</Text>
-                  <Text style={[styles.cellDuration, { fontWeight: 'bold' }]}>
-                    {getDuration(entry.startTime, entry.endTime)}
-                  </Text>
-                  <Text style={styles.cellRemarks}>{entry.remarks || '—'}</Text>
-                </View>
-              );
-            })
-          )}
-        </View>
-
-        {/* Podsumowanie godzin */}
-        <View style={styles.summaryContainer}>
-          <Text style={styles.summaryText}>Łączny czas pracy: {calculateTotalHours()} godz.</Text>
-        </View>
-
-        {/* Sekcja podpisów */}
-        <View style={styles.signatureSection}>
-          <View style={styles.signatureBox}>
-            <Text style={styles.signatureLabel}>Zatwierdził (Manager / Owner)</Text>
-            <Text style={{ fontSize: 10, color: '#cccccc', marginTop: 15 }}>..............................................</Text>
+            <View style={[styles.cell, styles.colStart]}>
+              <Text style={styles.cellTextBold}>Rozpoczęcie</Text>
+              <Text style={styles.cellTextBold}>pracy</Text>
+            </View>
+            <View style={[styles.cell, styles.colEnd]}>
+              <Text style={styles.cellTextBold}>Zakończenie</Text>
+              <Text style={styles.cellTextBold}>pracy</Text>
+            </View>
+            <View style={[styles.cell, styles.colHours]}>
+              <Text style={styles.cellTextBold}>Ilość godzin</Text>
+            </View>
+            <View style={[styles.cell, styles.colSig]}>
+              <Text style={styles.cellTextBold}>Podpis pracownika</Text>
+            </View>
           </View>
-          <View style={styles.signatureBox}>
-            <Text style={styles.signatureLabel}>Podpis pracownika</Text>
-            <Text style={styles.signatureName}>/{employeeName}/</Text>
-          </View>
-        </View>
 
+          {/* Rekordy dni */}
+          {rows}
+
+          {/* Rekord podsumowania */}
+          {summaryRow}
+        </View>
       </Page>
     </Document>
   );
