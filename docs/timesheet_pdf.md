@@ -49,11 +49,11 @@ graph TD
 ### 3.1. Obsługa Polskich Znaków (Rejestracja Czcionki)
 Domyślne czcionki wbudowane w bibliotekę `react-pdf` (np. `Helvetica`, `Times-Roman`) obsługują wyłącznie kodowanie `WinAnsiEncoding`, w którym brakuje polskich znaków diakrytycznych. Próba ich użycia skutkuje brakiem znaków lub błędami renderowania.
 
-Problem ten został rozwiązany poprzez zarejestrowanie czcionki **Roboto** (wspierającej kodowanie Latin Extended) pobieranej bezpośrednio ze sprawdzonych, w pełni aktywnych i publicznych serwerów Google Fonts (`fonts.gstatic.com`). 
+Problem ten został rozwiązany poprzez zarejestrowanie czcionki **Roboto** (wspierającej kodowanie Latin Extended) pobieranej bezpośrednio z lokalnych plików projektu (`/fonts/Roboto-Regular.ttf` oraz `/fonts/Roboto-Bold.ttf`). 
 
-Te linki (wersja `v51`) posiadają pełne wsparcie dla nagłówków CORS (`Access-Control-Allow-Origin: *`) i są bez problemu pobierane przez przeglądarkę użytkownika w momencie generowania pliku PDF:
-- **Regular**: `https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf`
-- **Bold**: `https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf`
+Ścieżki te są serwowane z tej samej domeny co portal, co całkowicie eliminuje problemy z CORS, politykami bezpieczeństwa przeglądarek (CSP) czy brakiem dostępu do internetu:
+- **Regular**: `/fonts/Roboto-Regular.ttf`
+- **Bold**: `/fonts/Roboto-Bold.ttf`
 
 Rejestracja czcionki w kodzie:
 
@@ -63,8 +63,8 @@ import { Font } from '@react-pdf/renderer';
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf' }, // Regular
-    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf', fontWeight: 'bold' } // Bold
+    { src: '/fonts/Roboto-Regular.ttf' }, // Regular
+    { src: '/fonts/Roboto-Bold.ttf', fontWeight: 'bold' } // Bold
   ]
 });
 ```

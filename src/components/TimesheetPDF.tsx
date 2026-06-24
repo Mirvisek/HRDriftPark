@@ -1,12 +1,12 @@
 import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
 import { TimesheetEntry } from '@/app/actions/timesheetActions';
 
-// Rejestracja czcionki Roboto wspierającej polskie znaki ze sprawdzonych, aktywnych linków CDN Google Fonts (v51)
+// Rejestracja czcionki Roboto wspierającej polskie znaki bezpośrednio z lokalnych plików na Twoim serwerze
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf' },
-    { src: 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf', fontWeight: 'bold' }
+    { src: '/fonts/Roboto-Regular.ttf' },
+    { src: '/fonts/Roboto-Bold.ttf', fontWeight: 'bold' }
   ]
 });
 
