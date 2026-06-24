@@ -33,7 +33,7 @@ export async function getWorkSchedule(year: number, month: number) {
       .where(like(workSchedule.date, pattern));
 
     // Dołączmy nazwy użytkowników
-    const allUsers = await db.select({ id: users.id, name: users.name }).from(users);
+    const allUsers = await db.select({ id: users.id, name: users.displayName }).from(users);
     const userMap = new Map(allUsers.map(u => [u.id, u.name]));
 
     const data: ScheduleEntry[] = results.map(r => ({
@@ -128,7 +128,7 @@ export async function generateSchedule(year: number, month: number) {
       );
 
     // Pobierz wszystkich użytkowników
-    const allUsers = await db.select({ id: users.id, name: users.name }).from(users);
+    const allUsers = await db.select({ id: users.id, name: users.displayName }).from(users);
     const userMap = new Map(allUsers.map(u => [u.id, u.name]));
 
     // Grupuj dostępność według dat

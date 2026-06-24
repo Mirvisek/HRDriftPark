@@ -37,7 +37,7 @@ export default function AvailabilityPage() {
 
   // Pobieranie pracowników
   useEffect(() => {
-    if (currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager')) {
+    if (currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'technik')) {
       getEmployees().then((res: any) => {
         if (res.success) {
           setEmployees(res.data);
@@ -243,7 +243,7 @@ export default function AvailabilityPage() {
         </div>
 
         {/* View Mode Tabs */}
-        {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager') && (
+        {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'technik') && (
           <div className="flex bg-[#0a0a0a] border border-white/10 rounded-lg p-1">
             <button
               onClick={() => setViewMode('my')}
@@ -497,7 +497,7 @@ export default function AvailabilityPage() {
           )}
 
           {/* Narzędzia symulacji blokad (Widoczne dla Menedżera / Właściciela do celów testowych) */}
-          {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager') && (
+          {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'technik') && (
             <div className="glass-card rounded-2xl p-6 border border-brand-gold/10 bg-brand-gold/5 space-y-4">
               <h4 className="text-xs font-extrabold uppercase text-brand-gold tracking-wider flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" />

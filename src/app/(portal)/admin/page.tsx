@@ -13,7 +13,7 @@ export default function AdminDashboardPage() {
     role: (session.user as any).role || 'employee',
   } : null;
 
-  const isManagerOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'manager';
+  const isManagerOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'technik';
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [allEntries, setAllEntries] = useState<TimesheetEntry[]>([]);

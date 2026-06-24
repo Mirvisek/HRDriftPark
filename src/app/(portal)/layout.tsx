@@ -13,6 +13,10 @@ export default async function PortalLayout({
     redirect("/login");
   }
 
+  if ((session.user as any).mustChangePassword) {
+    redirect("/change-password");
+  }
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#0f0f0f] text-[#e0e0e0] font-sans">
       {/* Nawigacja (Desktop sidebar oraz Mobile header & drawer) */}

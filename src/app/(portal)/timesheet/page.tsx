@@ -388,7 +388,7 @@ export default function TimesheetPage() {
           </div>
 
           {/* Narzędzia symulacji blokad (Widoczne dla Menedżera / Właściciela do celów testowych) */}
-          {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager') && (
+          {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'technik') && (
             <div className="glass-card rounded-2xl p-6 border border-brand-gold/10 bg-brand-gold/5 space-y-4">
               <h4 className="text-xs font-extrabold uppercase text-brand-gold tracking-wider flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" />

@@ -13,7 +13,8 @@ import {
   LogOut, 
   User, 
   Menu, 
-  X 
+  X,
+  Settings
 } from "lucide-react";
 import { SignOutButton } from "@/components/SignOutButton";
 
@@ -31,7 +32,7 @@ export function Navigation({ user }: NavigationProps) {
   const pathname = usePathname();
 
   const role = user.role;
-  const isManagerOrOwner = role === "manager" || role === "owner";
+  const isManagerOrOwner = role === "manager" || role === "owner" || role === "technik";
 
   // Zamykanie menu po zmianie podstrony
   useEffect(() => {
@@ -133,6 +134,20 @@ export function Navigation({ user }: NavigationProps) {
 
         {/* User Section & Logout */}
         <div className="pt-6 border-t border-white/5 space-y-4">
+          {(role === "owner" || role === "technik") && (
+            <Link
+              href="/settings"
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition duration-200 ${
+                pathname === "/settings"
+                  ? "bg-white/10 text-white font-semibold"
+                  : "text-[#a0a0a0] hover:text-white hover:bg-white/5"
+              }`}
+            >
+              <Settings className="w-4 h-4 text-brand-gold animate-pulse" />
+              <span>Ustawienia strony</span>
+            </Link>
+          )}
+
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#1e1e1e] flex items-center justify-center text-[#ffd700] border border-white/5 shrink-0">
               <User className="w-5 h-5" />
@@ -235,6 +250,21 @@ export function Navigation({ user }: NavigationProps) {
 
           {/* Mobile User Profile & Logout */}
           <div className="space-y-4 pt-6 border-t border-white/5">
+            {(role === "owner" || role === "technik") && (
+              <Link
+                href="/settings"
+                onClick={() => setIsOpen(false)}
+                className={`flex items-center gap-4 px-4 py-3 rounded-xl text-md font-semibold border transition ${
+                  pathname === "/settings"
+                    ? "bg-brand-gold/10 border-brand-gold/30 text-white"
+                    : "border-brand-gold/10 bg-brand-gold/5 text-[#e0e0e0] hover:bg-brand-gold/15"
+                }`}
+              >
+                <Settings className="w-5 h-5 text-brand-gold" />
+                <span>Ustawienia strony</span>
+              </Link>
+            )}
+
             <div className="flex items-center gap-3 bg-[#121212] p-4 rounded-xl border border-white/5">
               <div className="w-10 h-10 rounded-full bg-[#1e1e1e] flex items-center justify-center text-[#ffd700] border border-white/5 shrink-0">
                 <User className="w-5 h-5" />

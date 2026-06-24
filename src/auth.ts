@@ -8,6 +8,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "text" },
         password: { label: "Hasło", type: "password" },
+        rememberMe: { label: "Zapamiętaj mnie", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials) return null;
@@ -28,11 +29,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             if (isValid) {
               return {
                 id: String(user.id),
-                name: user.name,
+                name: user.displayName, // Używamy displayName jako name w sesji
                 email: user.email,
                 role: user.role,
                 position: user.position,
+                mustChangePassword: user.mustChangePassword,
                 isDemo: user.isDemo,
+                rememberMe: credentials.rememberMe === "true" ? "true" : "false",
               };
             }
           }
@@ -43,7 +46,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return null;
       },
     }),
-
   ],
   callbacks: {
     jwt({ token, user }) {
@@ -51,6 +53,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.role = (user as any).role;
         token.position = (user as any).position;
         token.isDemo = (user as any).isDemo;
+        token.mustChangePassword = (user as any).mustChangePassword;
+        token.rememberMe = (user as any).rememberMe;
+        
+        // Dynamiczne ustawienie czasu życia sesji w zależności od wyboru użytkownika
+        if (token.rememberMe === "true") {
+          token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 dni
+        } else {
+          token.exp = Math.floor(Date.now() / 1000) + 12 * 60 * 60; // 12 godzin (sesja krótka)
+        }
       }
       return token;
     },
@@ -60,6 +71,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).role = token.role;
         (session.user as any).position = token.position;
         (session.user as any).isDemo = token.isDemo;
+        (session.user as any).mustChangePassword = token.mustChangePassword;
       }
       return session;
     },

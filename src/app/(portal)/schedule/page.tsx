@@ -13,7 +13,7 @@ export default function SchedulePage() {
     isDemo: (session.user as any).isDemo || false
   } : null;
 
-  const isManagerOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'manager';
+  const isManagerOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'technik';
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [scheduleList, setScheduleList] = useState<ScheduleEntry[]>([]);

@@ -21,8 +21,8 @@ if (fs.existsSync(envPath)) {
 
 // 2. Import bazy danych i schematów po załadowaniu env
 import { db } from "./index";
-import { users } from "./schema";
-import { eq, or } from "drizzle-orm";
+import { users, settings } from "./schema";
+import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 async function main() {
@@ -35,52 +35,93 @@ async function main() {
 
   const testUsers = [
     {
-      name: "Jan Kowalski",
+      firstName: "Jan",
+      lastName: "Kowalski",
+      displayName: "Jan Kowalski",
       email: "owner@driftpark.pl",
       password: hashedPassword,
       role: "owner" as const,
       position: "Właściciel",
+      birthDate: "1980-05-15",
+      mustChangePassword: false,
       isDemo: false
     },
     {
-      name: "Marek Nowak",
+      firstName: "Marek",
+      lastName: "Nowak",
+      displayName: "Marek Nowak",
       email: "manager@driftpark.pl",
       password: hashedPassword,
       role: "manager" as const,
       position: "Menedżer Toru",
+      birthDate: "1985-08-20",
+      mustChangePassword: false,
       isDemo: false
     },
     {
-      name: "Adam Wiśniewski",
+      firstName: "Adam",
+      lastName: "Wiśniewski",
+      displayName: "Adam Wiśniewski",
       email: "pracownik@driftpark.pl",
       password: hashedPassword,
       role: "employee" as const,
       position: "Instruktor Driftu",
+      birthDate: "1995-03-10",
+      mustChangePassword: false,
       isDemo: false
     },
     {
-      name: "Katarzyna Zając",
+      firstName: "Katarzyna",
+      lastName: "Zając",
+      displayName: "Kasia Zając",
       email: "kasia@driftpark.pl",
       password: hashedPassword,
       role: "employee" as const,
       position: "Obsługa Klienta",
+      birthDate: "1998-11-25",
+      mustChangePassword: false,
       isDemo: false
     },
     {
-      name: "Tomasz Wójcik",
+      firstName: "Tomasz",
+      lastName: "Wójcik",
+      displayName: "Tomek Wójcik",
       email: "tomek@driftpark.pl",
       password: hashedPassword,
       role: "employee" as const,
       position: "Instruktor Pro",
+      birthDate: "1992-07-05",
+      mustChangePassword: false,
+      isDemo: false
+    },
+    {
+      firstName: "Piotr",
+      lastName: "Zieliński",
+      displayName: "Piotr Technik",
+      email: "technik@driftpark.pl",
+      password: hashedPassword,
+      role: "technik" as const,
+      position: "Technik Toru",
+      birthDate: "1990-01-01",
+      mustChangePassword: false,
       isDemo: false
     }
   ];
 
+  const defaultSettings = [
+    { key: "smtp_host", value: "smtp.mailtrap.io" },
+    { key: "smtp_port", value: "2525" },
+    { key: "smtp_secure", value: "false" },
+    { key: "smtp_user", value: "placeholder_user" },
+    { key: "smtp_password", value: "placeholder_password" },
+    { key: "smtp_from", value: "Drift Park Extreme <no-reply@driftparkextreme.pl>" }
+  ];
+
   try {
+    // 1. Seedowanie użytkowników
     for (const u of testUsers) {
-      console.log(`Przetwarzanie użytkownika: ${u.name} (${u.email})...`);
+      console.log(`Przetwarzanie użytkownika: ${u.displayName} (${u.email})...`);
       
-      // Sprawdzenie czy użytkownik o tym mailu już istnieje
       const existing = await db
         .select()
         .from(users)
@@ -88,22 +129,42 @@ async function main() {
         .limit(1);
 
       if (existing.length > 0) {
-        // Aktualizacja hasła i roli, aby upewnić się, że konto działa
         await db
           .update(users)
           .set({
-            name: u.name,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            displayName: u.displayName,
             password: u.password,
             role: u.role,
             position: u.position,
+            birthDate: u.birthDate,
+            mustChangePassword: u.mustChangePassword,
             isDemo: u.isDemo
           })
           .where(eq(users.email, u.email));
         console.log(`Zaktualizowano istniejącego użytkownika: ${u.email}`);
       } else {
-        // Wstawienie nowego użytkownika
         await db.insert(users).values(u);
         console.log(`Dodano nowego użytkownika: ${u.email}`);
+      }
+    }
+
+    // 2. Seedowanie ustawień systemowych
+    console.log("\nPrzetwarzanie domyślnych ustawień systemowych...");
+    for (const s of defaultSettings) {
+      const existing = await db
+        .select()
+        .from(settings)
+        .where(eq(settings.key, s.key))
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Nie nadpisujemy istniejących konfiguracji SMTP, aby nie popsuć wpisanych wartości
+        console.log(`Ustawienie '${s.key}' już istnieje. Pomijam.`);
+      } else {
+        await db.insert(settings).values(s);
+        console.log(`Dodano domyślne ustawienie '${s.key}': ${s.value}`);
       }
     }
 
@@ -112,9 +173,10 @@ async function main() {
     console.log("--------------------------------------------------");
     console.log("1. Właściciel:  owner@driftpark.pl     hasło: drift123");
     console.log("2. Menedżer:    manager@driftpark.pl   hasło: drift123");
-    console.log("3. Pracownik:   pracownik@driftpark.pl hasło: drift123");
-    console.log("4. Pracownik:   kasia@driftpark.pl     hasło: drift123");
-    console.log("5. Pracownik:   tomek@driftpark.pl     hasło: drift123");
+    console.log("3. Technik:     technik@driftpark.pl   hasło: drift123");
+    console.log("4. Pracownik:   pracownik@driftpark.pl hasło: drift123");
+    console.log("5. Pracownik:   kasia@driftpark.pl     hasło: drift123");
+    console.log("6. Pracownik:   tomek@driftpark.pl     hasło: drift123");
     console.log("--------------------------------------------------");
 
   } catch (error) {

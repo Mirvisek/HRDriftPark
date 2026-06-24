@@ -9,7 +9,7 @@ export interface UserEntry {
   id: number;
   name: string;
   email: string;
-  role: 'owner' | 'manager' | 'employee';
+  role: 'owner' | 'manager' | 'employee' | 'technik';
   position: string;
   isDemo: boolean;
 }
@@ -22,7 +22,7 @@ export async function getEmployees() {
     const results = await db
       .select({
         id: users.id,
-        name: users.name,
+        name: users.displayName,
         email: users.email,
         role: users.role,
         position: users.position,

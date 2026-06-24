@@ -150,7 +150,7 @@ export async function getAllTimesheets(year: number, month: number) {
         endTime: timesheets.endTime,
         remarks: timesheets.remarks,
         isLocked: timesheets.isLocked,
-        userName: users.name,
+        userName: users.displayName,
         position: users.position
       })
       .from(timesheets)
