@@ -19,13 +19,14 @@ if (fs.existsSync(envPath)) {
   console.warn("Brak pliku .env. Używam domyślnych wartości.");
 }
 
-// 2. Import bazy danych i schematów po załadowaniu env
-import { db } from "./index";
-import { users, settings } from "./schema";
-import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 async function main() {
+  // Dynamiczny import bazy i schematów dopiero PO załadowaniu zmiennych env
+  const { db } = await import("./index");
+  const { users, settings } = await import("./schema");
+  const { eq } = await import("drizzle-orm");
+
   console.log("Rozpoczynam seedowanie bazy danych...");
 
   // Hasło dla wszystkich kont testowych: drift123
