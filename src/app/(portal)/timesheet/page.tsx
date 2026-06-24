@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { getTimesheets, saveTimesheet, deleteTimesheet, checkTimesheetLocked, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
-import { Plus, Trash2, FileText, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert } from 'lucide-react';
+import { Plus, Trash2, FileText, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert, Edit2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { TimesheetPDF } from '@/components/TimesheetPDF';
 
@@ -32,6 +32,7 @@ export default function TimesheetPage() {
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [isMounted, setIsMounted] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<TimesheetEntry | null>(null);
 
   // Form state
   const [formDate, setFormDate] = useState('');
@@ -124,42 +125,90 @@ export default function TimesheetPage() {
       return;
     }
 
-    const newEntry: TimesheetEntry = {
-      userId: currentUser.id,
-      date: formDate,
-      startTime: formStart,
-      endTime: formEnd,
-      remarks: formRemarks || '',
-      isLocked: false
-    };
+    if (editingEntry) {
+      // Przepływ edycji
+      const updated = entries.map(item => 
+        item.id === editingEntry.id 
+          ? { ...item, date: formDate, startTime: formStart, endTime: formEnd, remarks: formRemarks || '' }
+          : item
+      );
 
-    const updated = [...entries, newEntry];
+      // Zapisz lokalnie
+      try {
+        localStorage.setItem(`timesheets_${currentUser.id}_${year}_${month}`, JSON.stringify(updated));
+      } catch (err) {}
 
-    // Zapisz lokalnie
-    try {
-      localStorage.setItem(`timesheets_${currentUser.id}_${year}_${month}`, JSON.stringify(updated));
-    } catch (err) {}
+      // Zapis do serwera
+      const res = await saveTimesheet(
+        editingEntry.id, // ID edytowanego wpisu
+        currentUser.id,
+        formDate,
+        formStart,
+        formEnd,
+        formRemarks
+      );
 
-    // Zapis do serwera
-    const res = await saveTimesheet(
-      undefined, // Brak ID = nowy wpis
-      currentUser.id,
-      formDate,
-      formStart,
-      formEnd,
-      formRemarks
-    );
-
-    if (res.success) {
-      setStatusMsg({ type: 'success', text: 'Pomyślnie dodano wpis do karty godzin.' });
-      setShowAddForm(false);
-      setFormRemarks('');
-      fetchTimesheetsList();
+      if (res.success) {
+        setStatusMsg({ type: 'success', text: 'Pomyślnie zaktualizowano wpis w karcie godzin.' });
+        setShowAddForm(false);
+        setFormRemarks('');
+        setEditingEntry(null);
+        fetchTimesheetsList();
+      } else {
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu w bazie danych.' });
+        setShowAddForm(false);
+        setFormRemarks('');
+        setEditingEntry(null);
+      }
     } else {
-      setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu w bazie danych.' });
-      setShowAddForm(false);
-      setFormRemarks('');
+      // Przepływ dodawania
+      const newEntry: TimesheetEntry = {
+        userId: currentUser.id,
+        date: formDate,
+        startTime: formStart,
+        endTime: formEnd,
+        remarks: formRemarks || '',
+        isLocked: false
+      };
+
+      const updated = [...entries, newEntry];
+
+      // Zapisz lokalnie
+      try {
+        localStorage.setItem(`timesheets_${currentUser.id}_${year}_${month}`, JSON.stringify(updated));
+      } catch (err) {}
+
+      // Zapis do serwera
+      const res = await saveTimesheet(
+        undefined, // Brak ID = nowy wpis
+        currentUser.id,
+        formDate,
+        formStart,
+        formEnd,
+        formRemarks
+      );
+
+      if (res.success) {
+        setStatusMsg({ type: 'success', text: 'Pomyślnie dodano wpis do karty godzin.' });
+        setShowAddForm(false);
+        setFormRemarks('');
+        fetchTimesheetsList();
+      } else {
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu w bazie danych.' });
+        setShowAddForm(false);
+        setFormRemarks('');
+      }
     }
+  };
+
+  const handleEditClick = (entry: TimesheetEntry) => {
+    setEditingEntry(entry);
+    setFormDate(entry.date);
+    setFormStart(entry.startTime);
+    setFormEnd(entry.endTime);
+    setFormRemarks(entry.remarks || '');
+    setFormError(null);
+    setShowAddForm(true);
   };
 
   const handleDelete = async (id: number | undefined, index: number) => {
@@ -230,7 +279,16 @@ export default function TimesheetPage() {
         <div className="flex items-center gap-2">
           {!isLocked && (
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => {
+                setEditingEntry(null);
+                const today = new Date();
+                setFormDate(today.toISOString().split('T')[0]);
+                setFormStart('10:00');
+                setFormEnd('18:00');
+                setFormRemarks('');
+                setFormError(null);
+                setShowAddForm(true);
+              }}
               className="px-4 py-2 bg-gradient-to-r from-brand-red to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-extrabold text-xs rounded-lg shadow-lg hover:shadow-brand-red/10 transition flex items-center gap-2 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -352,7 +410,14 @@ export default function TimesheetPage() {
                           </td>
                           <td className="py-4 px-6 text-xs text-[#a0a0a0] max-w-xs truncate">{entry.remarks || '—'}</td>
                           {!isLocked && (
-                            <td className="py-4 px-6 text-right">
+                            <td className="py-4 px-6 text-right flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleEditClick(entry)}
+                                className="p-1.5 hover:bg-brand-gold/10 text-[#555] hover:text-brand-gold rounded-lg transition cursor-pointer"
+                                title="Edytuj wpis"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
                               <button
                                 onClick={() => handleDelete(entry.id, index)}
                                 className="p-1.5 hover:bg-brand-red/10 text-[#555] hover:text-brand-red rounded-lg transition cursor-pointer"
@@ -424,8 +489,12 @@ export default function TimesheetPage() {
             </button>
 
             <h3 className="text-lg font-bold text-white mb-6 font-display flex items-center gap-2">
-              <Plus className="w-5 h-5 text-brand-red" />
-              <span>Dodaj wpis godzin pracy</span>
+              {editingEntry ? (
+                <Edit2 className="w-5 h-5 text-brand-gold" />
+              ) : (
+                <Plus className="w-5 h-5 text-brand-red" />
+              )}
+              <span>{editingEntry ? 'Edytuj wpis godzin pracy' : 'Dodaj wpis godzin pracy'}</span>
             </h3>
 
             {formError && (
@@ -485,7 +554,7 @@ export default function TimesheetPage() {
                 type="submit"
                 className="w-full py-3 bg-gradient-to-r from-brand-red to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold rounded-lg shadow-lg hover:shadow-brand-red/20 transition cursor-pointer"
               >
-                Dodaj do ewidencji
+                {editingEntry ? 'Zapisz zmiany' : 'Dodaj do ewidencji'}
               </button>
             </form>
           </div>
