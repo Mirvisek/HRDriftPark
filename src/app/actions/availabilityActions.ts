@@ -20,34 +20,28 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
     return false;
   }
   
-  const targetDate = new Date(targetDateStr);
+  // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
+  const [targetYear, targetMonth] = targetDateStr.split('-').map(Number);
+  
   const now = new Date();
-  
-  const targetYear = targetDate.getFullYear();
-  const targetMonth = targetDate.getMonth();
-  
   const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
+  const currentMonth = now.getMonth() + 1; // 1-12
   const currentDay = now.getDate();
   
-  // Blokada przeszłych miesięcy
-  if (targetYear < currentYear || (targetYear === currentYear && targetMonth < currentMonth)) {
+  // Różnica w miesiącach
+  const monthsDiff = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
+  
+  // 1. Miesiące przeszłe oraz miesiąc bieżący są zawsze zablokowane do planowania dla pracowników
+  if (monthsDiff <= 0) {
     return true;
   }
   
-  // Blokada bieżącego miesiąca po 15. dniu
-  if (targetYear === currentYear && targetMonth === currentMonth) {
-    return currentDay > 15;
-  }
-  
-  // Blokada przyszłego miesiąca (np. pracownik planuje na kolejny miesiąc, edycja otwarta do 15. dnia poprzedniego)
-  const monthsDiff = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
+  // 2. Następny miesiąc (M+1) jest edytowalny tylko do 15-go dnia bieżącego miesiąca (M)
   if (monthsDiff === 1) {
     return currentDay > 15;
-  } else if (monthsDiff > 1) {
-    return false;
   }
   
+  // 3. Dalsza przyszłość (M+2, M+3 itd.) jest zawsze otwarta do edycji
   return false;
 }
 

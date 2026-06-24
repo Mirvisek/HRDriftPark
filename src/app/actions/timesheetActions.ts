@@ -66,9 +66,8 @@ export async function saveTimesheet(
 
   const userRole = (session.user as any).role;
 
-  const dateObj = new Date(dateStr);
-  const targetYear = dateObj.getFullYear();
-  const targetMonth = dateObj.getMonth() + 1;
+  // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
+  const [targetYear, targetMonth] = dateStr.split('-').map(Number);
 
   // Sprawdzanie blokady
   const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
@@ -112,9 +111,8 @@ export async function deleteTimesheet(id: number) {
     const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
     if (existing.length === 0) return { success: false, error: "Nie znaleziono wpisu." };
 
-    const dateObj = new Date(existing[0].date);
-    const targetYear = dateObj.getFullYear();
-    const targetMonth = dateObj.getMonth() + 1;
+    // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
+    const [targetYear, targetMonth] = existing[0].date.split('-').map(Number);
 
     const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
     if (isLocked) {
