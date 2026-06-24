@@ -88,7 +88,7 @@ export default function AdminDashboardPage() {
 
     return {
       ...emp,
-      totalHours: (totalMinutes / 60).toFixed(1),
+      totalHours: (totalMinutes / 60).toFixed(2),
       entriesCount: empEntries.length,
       hasConflicts
     };
@@ -140,7 +140,7 @@ export default function AdminDashboardPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-white font-display">
-              {employeeSummaries.reduce((sum, e) => sum + Number(e.totalHours), 0).toFixed(1)}h
+              {employeeSummaries.reduce((sum, e) => sum + Number(e.totalHours), 0).toFixed(2)}h
             </div>
             <div className="text-xs text-[#a0a0a0]">Przepracowanych łącznie</div>
           </div>
@@ -261,7 +261,7 @@ export default function AdminDashboardPage() {
                                   {e.startTime} - {e.endTime}
                                 </div>
                                 <div className="text-[9px] text-[#555]">
-                                  ({( (Number(e.endTime.split(':')[0]) * 60 + Number(e.endTime.split(':')[1])) - (Number(e.startTime.split(':')[0]) * 60 + Number(e.startTime.split(':')[1])) ) / 60}h)
+                                  ({( ((Number(e.endTime.split(':')[0]) * 60 + Number(e.endTime.split(':')[1])) - (Number(e.startTime.split(':')[0]) * 60 + Number(e.startTime.split(':')[1])) ) / 60).toFixed(2)}h)
                                 </div>
                               </div>
                             </div>

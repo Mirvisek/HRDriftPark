@@ -195,7 +195,7 @@ export default function TimesheetPage() {
     const [sh, sm] = start.split(':').map(Number);
     const [eh, em] = end.split(':').map(Number);
     const diff = (eh * 60 + em) - (sh * 60 + sm);
-    return diff > 0 ? (diff / 60).toFixed(1) : '0.0';
+    return diff > 0 ? (diff / 60).toFixed(2) : '0.00';
   };
 
   const calculateTotalHours = () => {
@@ -203,7 +203,7 @@ export default function TimesheetPage() {
     entries.forEach(e => {
       total += Number(calculateHours(e.startTime, e.endTime));
     });
-    return total.toFixed(1);
+    return total.toFixed(2);
   };
 
   const nextMonth = () => {

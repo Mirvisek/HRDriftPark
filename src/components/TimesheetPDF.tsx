@@ -149,15 +149,15 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year 
       const diffMin = (eh * 60 + em) - (sh * 60 + sm);
       if (diffMin > 0) total += diffMin / 60;
     });
-    return total.toFixed(1);
+    return total.toFixed(2);
   };
 
   const getDuration = (start: string, end: string) => {
     const [sh, sm] = start.split(':').map(Number);
     const [eh, em] = end.split(':').map(Number);
     const diff = (eh * 60 + em) - (sh * 60 + sm);
-    if (diff <= 0) return '0.0h';
-    return `${(diff / 60).toFixed(1)}h`;
+    if (diff <= 0) return '0.00h';
+    return `${(diff / 60).toFixed(2)}h`;
   };
 
   return (
