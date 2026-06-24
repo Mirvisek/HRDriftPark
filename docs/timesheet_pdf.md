@@ -56,11 +56,15 @@ Rejestracja czcionki w kodzie:
 ```typescript
 import { Font } from '@react-pdf/renderer';
 
+const isBrowser = typeof window !== 'undefined';
+const fontRegularUrl = isBrowser ? `${window.location.origin}/fonts/Roboto-Regular.ttf` : 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf';
+const fontBoldUrl = isBrowser ? `${window.location.origin}/fonts/Roboto-Bold.ttf` : 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf';
+
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: '/fonts/Roboto-Regular.ttf' }, // Regular
-    { src: '/fonts/Roboto-Bold.ttf', fontWeight: 'bold' } // Bold
+    { src: fontRegularUrl },
+    { src: fontBoldUrl, fontWeight: 'bold' }
   ]
 });
 ```
@@ -91,7 +95,7 @@ Baza danych przechowuje wpisy ewidencji czasu pracy jako pojedyncze rekordy z da
    - Jeśli wpis jest jeden, pobieramy bezpośrednio jego `startTime` i `endTime`.
    - Jeśli wpisów jest więcej (np. dwie zmiany jednego dnia), łączymy je przecinkiem: `sortedDayEntries.map(e => e.startTime).join(', ')`.
    - Sumujemy czas trwania wszystkich zmian w tym dniu i formatujemy jako liczbę dziesiętną z dwoma miejscami po przecinku (np. `8.50`).
-   - **Automatyczny podpis**: Jeśli w danym dniu pracownik przepracował chociaż jedną zmianę, kolumna "Podpis pracownika" jest automatycznie uzupełniana wartością `/[Imię i Nazwisko]/` (np. `/Michał Dygdoń/`), co reprezentuje elektroniczne potwierdzenie obecności z systemu. Dla dni nieprzepracowanych pole pozostaje całkowicie puste.
+   - **Automatyczny podpis**: Jeśli w danym dniu pracownik przepracował chociaż jedną zmianę, kolumna "Podpis pracownika" jest automatycznie uzupełniana wartością `/Imię i Nazwisko/` (np. `/Michał Dygdoń/`), co reprezentuje elektroniczne potwierdzenie obecności z systemu. Dla dni nieprzepracowanych pole pozostaje całkowicie puste.
 
 ### 3.3. Estetyka Tabeli (Siatka 1px Bez Podwójnych Krawędzi)
 Ze względu na to, że `react-pdf` nie obsługuje właściwości CSS `border-collapse: collapse`, nadanie obramowania `border: 1px solid #000` na każdej komórce skutkowałoby podwójną grubością linii stykających się komórek (2px).
