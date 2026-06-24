@@ -21,20 +21,24 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   title: {
+    fontFamily: 'Roboto',
     fontSize: 14,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 25,
   },
   metaRow: {
+    fontFamily: 'Roboto',
     fontSize: 10,
     marginBottom: 6,
     flexDirection: 'row',
   },
   metaLabel: {
+    fontFamily: 'Roboto',
     fontWeight: 'bold',
   },
   metaValue: {
+    fontFamily: 'Roboto',
     fontWeight: 'normal',
   },
   table: {
@@ -65,10 +69,12 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   cellText: {
+    fontFamily: 'Roboto',
     fontSize: 8,
     textAlign: 'center',
   },
   cellTextBold: {
+    fontFamily: 'Roboto',
     fontSize: 8,
     fontWeight: 'bold',
     textAlign: 'center',
@@ -137,6 +143,7 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
     let startTimeStr = "";
     let endTimeStr = "";
     let hoursStr = "";
+    let signatureStr = "";
 
     if (sortedDayEntries.length > 0) {
       if (sortedDayEntries.length === 1) {
@@ -157,6 +164,7 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
         }
       });
       hoursStr = dayHours > 0 ? dayHours.toFixed(2) : "";
+      signatureStr = `/${employeeName}/`;
     }
 
     rows.push(
@@ -183,7 +191,7 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
         
         {/* Podpis pracownika */}
         <View style={[styles.cell, styles.colSig]}>
-          <Text style={styles.cellText}></Text>
+          <Text style={styles.cellText}>{signatureStr}</Text>
         </View>
       </View>
     );
