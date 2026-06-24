@@ -6,15 +6,11 @@ import { getTimesheets, saveTimesheet, deleteTimesheet, checkTimesheetLocked, Ti
 import { checkConflicts } from '@/lib/timesheetUtils';
 import { Plus, Trash2, FileText, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { TimesheetPDF } from '@/components/TimesheetPDF';
 
 // Dynamiczny import linku pobierania react-pdf, aby uniknąć błędów SSR (Server-Side Rendering)
 const PDFDownloadLink = dynamic(
   () => import('@react-pdf/renderer').then((mod) => mod.PDFDownloadLink),
-  { ssr: false }
-);
-
-const TimesheetPDF = dynamic(
-  () => import('@/components/TimesheetPDF').then((mod) => mod.TimesheetPDF),
   { ssr: false }
 );
 
