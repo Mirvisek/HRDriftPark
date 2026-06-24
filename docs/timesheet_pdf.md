@@ -62,9 +62,9 @@ Font.register({
 });
 ```
 
-Wszystkie teksty w komponencie mają ustawioną właściwość `fontFamily: 'Roboto'`, co gwarantuje poprawne wyświetlanie znaków takich jak `ą, ć, ę, ł, ń, ó, ś, ź, ż`.
+Wszystkie style tekstowe w komponencie (takie jak `title`, `metaRow`, `metaLabel`, `metaValue`, `cellText` oraz `cellTextBold`) mają **jawnie ustawioną** właściwość `fontFamily: 'Roboto'`. Jest to kluczowe, ponieważ w bibliotece `@react-pdf/renderer` dziedziczenie stylów (w tym rodziny czcionek) z komponentu nadrzędnego `Page` nie propaguje się automatycznie do elementów potomnych, które posiadają własne style. Jawna deklaracja gwarantuje poprawne wyświetlanie znaków diakrytycznych w każdym polu tekstowym.
 
-### 3.2. Agregacja Danych Kalendarzowych
+### 3.2. Agregacja Danych Kalendarzowych i Podpis Elektroniczny
 Baza danych przechowuje wpisy ewidencji czasu pracy jako pojedyncze rekordy z datą w formacie `YYYY-MM-DD`. Aby stworzyć pełną kartę obecności na cały miesiąc:
 1. Obliczamy liczbę dni w danym miesiącu przy użyciu standardowego mechanizmu JavaScript:
    ```typescript
@@ -88,6 +88,7 @@ Baza danych przechowuje wpisy ewidencji czasu pracy jako pojedyncze rekordy z da
    - Jeśli wpis jest jeden, pobieramy bezpośrednio jego `startTime` i `endTime`.
    - Jeśli wpisów jest więcej (np. dwie zmiany jednego dnia), łączymy je przecinkiem: `sortedDayEntries.map(e => e.startTime).join(', ')`.
    - Sumujemy czas trwania wszystkich zmian w tym dniu i formatujemy jako liczbę dziesiętną z dwoma miejscami po przecinku (np. `8.50`).
+   - **Automatyczny podpis**: Jeśli w danym dniu pracownik przepracował chociaż jedną zmianę, kolumna "Podpis pracownika" jest automatycznie uzupełniana wartością `/[Imię i Nazwisko]/` (np. `/Michał Dygdoń/`), co reprezentuje elektroniczne potwierdzenie obecności z systemu. Dla dni nieprzepracowanych pole pozostaje całkowicie puste.
 
 ### 3.3. Estetyka Tabeli (Siatka 1px Bez Podwójnych Krawędzi)
 Ze względu na to, że `react-pdf` nie obsługuje właściwości CSS `border-collapse: collapse`, nadanie obramowania `border: 1px solid #000` na każdej komórce skutkowałoby podwójną grubością linii stykających się komórek (2px).
