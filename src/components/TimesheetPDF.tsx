@@ -12,8 +12,8 @@ Font.register({
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 35,
-    paddingBottom: 35,
+    paddingTop: 30,
+    paddingBottom: 30,
     paddingHorizontal: 40,
     fontFamily: 'Roboto',
     backgroundColor: '#ffffff',
@@ -25,7 +25,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginBottom: 25,
+    marginBottom: 20,
   },
   metaRow: {
     fontFamily: 'Roboto',
@@ -46,17 +46,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderLeftWidth: 1,
     borderColor: '#000000',
-    marginTop: 20,
+    marginTop: 15,
   },
   tableHeaderRow: {
     flexDirection: 'row',
     backgroundColor: '#e0e0e0',
-    height: 28,
+    height: 26,
     alignItems: 'center',
   },
   tableRow: {
     flexDirection: 'row',
-    height: 18,
+    height: 16,
     alignItems: 'center',
   },
   cell: {
@@ -84,6 +84,29 @@ const styles = StyleSheet.create({
   colEnd: { width: '18%' },
   colHours: { width: '15%' },
   colSig: { width: '37%' },
+  signatureSection: {
+    marginTop: 25,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  signatureBox: {
+    width: '45%',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  signatureLabel: {
+    fontFamily: 'Roboto',
+    fontSize: 8,
+    color: '#888888',
+    marginBottom: 5,
+  },
+  signatureName: {
+    fontFamily: 'Roboto',
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#000000',
+    marginTop: 15,
+  },
 });
 
 interface TimesheetPDFProps {
@@ -143,7 +166,6 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
     let startTimeStr = "";
     let endTimeStr = "";
     let hoursStr = "";
-    let signatureStr = "";
 
     if (sortedDayEntries.length > 0) {
       if (sortedDayEntries.length === 1) {
@@ -164,7 +186,6 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
         }
       });
       hoursStr = dayHours > 0 ? dayHours.toFixed(2) : "";
-      signatureStr = `/${employeeName}/`;
     }
 
     rows.push(
@@ -189,9 +210,9 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
           <Text style={styles.cellText}>{hoursStr}</Text>
         </View>
         
-        {/* Podpis pracownika */}
+        {/* Podpis pracownika (zostawiamy puste dla podpisu ręcznego) */}
         <View style={[styles.cell, styles.colSig]}>
-          <Text style={styles.cellText}>{signatureStr}</Text>
+          <Text style={styles.cellText}></Text>
         </View>
       </View>
     );
@@ -273,6 +294,18 @@ export function TimesheetPDF({ entries, employeeName, position, monthName, year,
 
           {/* Rekord podsumowania */}
           {summaryRow}
+        </View>
+
+        {/* Sekcja podpisów na dole strony */}
+        <View style={styles.signatureSection}>
+          <View style={styles.signatureBox}>
+            <Text style={styles.signatureLabel}>Zatwierdził (Manager / Owner)</Text>
+            <Text style={{ fontFamily: 'Roboto', fontSize: 10, color: '#cccccc', marginTop: 15 }}>..............................................</Text>
+          </View>
+          <View style={styles.signatureBox}>
+            <Text style={styles.signatureLabel}>Podpis pracownika</Text>
+            <Text style={styles.signatureName}>/[{employeeName}]/</Text>
+          </View>
         </View>
       </Page>
     </Document>
