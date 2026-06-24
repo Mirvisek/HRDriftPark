@@ -49,22 +49,24 @@ graph TD
 ### 3.1. Obsługa Polskich Znaków (Rejestracja Czcionki)
 Domyślne czcionki wbudowane w bibliotekę `react-pdf` (np. `Helvetica`, `Times-Roman`) obsługują wyłącznie kodowanie `WinAnsiEncoding`, w którym brakuje polskich znaków diakrytycznych. Próba ich użycia skutkuje brakiem znaków lub błędami renderowania.
 
-Problem ten został rozwiązany poprzez pobranie czcionki **Roboto** (wspierającej kodowanie Latin Extended) i umieszczenie jej bezpośrednio w katalogu projektu (`public/fonts/`). Dzięki temu przeglądarka pobiera czcionkę lokalnie z tej samej domeny, co całkowicie eliminuje problemy z CORS, politykami bezpieczeństwa (CSP) lub przerwami w dostępie do sieci zewnętrznej.
+Problem ten został rozwiązany poprzez przekonwertowanie plików czcionki **Roboto** (wspierającej kodowanie Latin Extended) do formatu **Base64** i umieszczenie ich bezpośrednio w kodzie projektu (`src/lib/fontsBase64.ts`). 
+
+Dzięki temu rozwiązaniu:
+- Czcionki są integralną częścią skompilowanego pakietu JavaScript aplikacji (zajmują tylko ok. 120 KB tekstu Base64).
+- Przeglądarka ładuje czcionki błyskawicznie bezpośrednio z pamięci operacyjnej, bez wykonywania jakichkolwiek zapytań HTTP.
+- Całkowicie wyeliminowano problemy związane z CORS, nagłówkami zabezpieczeń CSP, przerwami w dostępie do internetu czy uprawnieniami do odczytu plików na serwerze Linux VPS.
 
 Rejestracja czcionki w kodzie:
 
 ```typescript
 import { Font } from '@react-pdf/renderer';
-
-const isBrowser = typeof window !== 'undefined';
-const fontRegularUrl = isBrowser ? `${window.location.origin}/fonts/Roboto-Regular.ttf` : 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf';
-const fontBoldUrl = isBrowser ? `${window.location.origin}/fonts/Roboto-Bold.ttf` : 'https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWuYjalmUiA8.ttf';
+import { robotoRegularBase64, robotoBoldBase64 } from '@/lib/fontsBase64';
 
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: fontRegularUrl },
-    { src: fontBoldUrl, fontWeight: 'bold' }
+    { src: robotoRegularBase64 }, // Regular (Base64 data URL)
+    { src: robotoBoldBase64, fontWeight: 'bold' } // Bold (Base64 data URL)
   ]
 });
 ```
