@@ -12,8 +12,9 @@ Generator PDF umożliwia pracownikom eksportowanie ich miesięcznych kart ewiden
 - **Siatka dni kalendarzowych**: tabela musi zawierać wiersz dla każdego dnia danego miesiąca (od 1 do 28/29/30/31), niezależnie od tego, czy pracownik pracował w tym dniu.
 - **Dopasowanie do jednej strony A4**: cały dokument musi bezwzględnie mieścić się na pojedynczej stronie A4, aby zapobiec powstawaniu pustych lub częściowo zapełnionych drugich stron.
 - **Obsługa wielu zmian**: jeśli pracownik pracował kilka razy w ciągu jednego dnia, godziny rozpoczęcia i zakończenia są łączone, a czas pracy jest sumowany w jednym wierszu.
-- **Podpis pracownika**: każdemu dniu towarzyszy puste pole przeznaczone na odręczny podpis pracownika.
-- **Podsumowanie**: wiersz podsumowania `Razem:` na dole tabeli zawiera sumę przepracowanych godzin z całego miesiąca.
+- Podpis pracownika: każdemu dniu towarzyszy puste pole przeznaczone na odręczny podpis pracownika.
+- Sekcja podpisów na dole strony: Na samym dole dokumentu (pod tabelą) znajduje się oficjalna sekcja zatwierdzenia. W sekcji pracownika automatycznie wstawiany jest wydrukowany podpis systemowy w formacie `/[Imię i Nazwisko]/` (np. `/[Michał Dygdoń]/`), natomiast sekcja managera zawiera linię kropkową przeznaczoną na podpis odręczny.
+- Podsumowanie: wiersz podsumowania `Razem:` na dole tabeli zawiera sumę przepracowanych godzin z całego miesiąca.
 
 ---
 
