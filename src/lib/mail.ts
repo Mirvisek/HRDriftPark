@@ -66,7 +66,8 @@ ${html}
         user,
         pass,
       },
-    });
+      family: 4, // Wymuszenie IPv4 z powodu braku routingu IPv6 na serwerze (ENETUNREACH)
+    } as any);
 
     await transporter.sendMail({
       from,

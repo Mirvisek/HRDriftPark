@@ -252,6 +252,7 @@ export async function testSmtpConnectionAction(config: {
         user: smtp_user,
         pass: smtp_password,
       },
+      family: 4, // Wymuszenie IPv4 z powodu braku routingu IPv6 na serwerze (ENETUNREACH)
       connectTimeout: 8000, // 8 sekund timeoutu
     } as any);
 
