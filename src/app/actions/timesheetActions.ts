@@ -26,7 +26,7 @@ export async function checkTimesheetLocked(year: number, month: number, userRole
   const now = new Date();
   
   // Ostatni dzień miesiąca
-  const lastDay = new Date(year, month, 0); // month jest 1-indexed, więc 0 daje ostatni dzień poprzedniego miesiąca. Aby uzyskać ostatni dzień bieżącego, przekazujemy month bezpośrednio.
+  const lastDay = new Date(year, month, 0); // month jest 1-indexed, więc 0 daje ostatni dzień poprzedniego miesiąca.
   lastDay.setHours(22, 0, 0, 0);
 
   return now.getTime() > lastDay.getTime();
@@ -49,7 +49,7 @@ export async function getTimesheets(userId: number, year: number, month: number)
     return { success: true, data: results as TimesheetEntry[] };
   } catch (e) {
     console.error("Błąd pobierania kart godzin:", e);
-    return { success: false, data: [], error: "Brak połączenia z bazą." };
+    return { success: false, data: [], error: "Błąd bazy danych podczas pobierania kart godzin." };
   }
 }
 
@@ -65,7 +65,6 @@ export async function saveTimesheet(
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
   const userRole = (session.user as any).role;
-  const isDemo = (session.user as any).isDemo;
 
   const dateObj = new Date(dateStr);
   const targetYear = dateObj.getFullYear();
@@ -75,11 +74,6 @@ export async function saveTimesheet(
   const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
   if (isLocked) {
     return { success: false, error: "Edycja karty godzin na ten miesiąc została zablokowana (minęła godzina 22:00 ostatniego dnia miesiąca)." };
-  }
-
-  if (isDemo) {
-    // W trybie demo mockujemy udany zapis
-    return { success: true, mocked: true };
   }
 
   try {
@@ -104,7 +98,7 @@ export async function saveTimesheet(
     return { success: true };
   } catch (e) {
     console.error("Błąd zapisu karty godzin:", e);
-    return { success: false, error: "Błąd bazy danych" };
+    return { success: false, error: "Błąd zapisu w bazie danych." };
   }
 }
 
@@ -113,7 +107,6 @@ export async function deleteTimesheet(id: number) {
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
   const userRole = (session.user as any).role;
-  const isDemo = (session.user as any).isDemo;
 
   try {
     const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
@@ -128,16 +121,13 @@ export async function deleteTimesheet(id: number) {
       return { success: false, error: "Edycja zablokowana." };
     }
 
-    if (isDemo) return { success: true, mocked: true };
-
     await db.delete(timesheets).where(eq(timesheets.id, id));
     return { success: true };
   } catch (e) {
     console.error("Błąd usuwania wpisu:", e);
-    return { success: false, error: "Błąd serwera." };
+    return { success: false, error: "Błąd serwera podczas usuwania wpisu." };
   }
 }
-
 
 // Metoda dla Menedżera - pobierz wszystkie karty godzin
 export async function getAllTimesheets(year: number, month: number) {
@@ -172,13 +162,6 @@ export async function getAllTimesheets(year: number, month: number) {
     return { success: true, data: results as TimesheetEntry[] };
   } catch (e) {
     console.error("Błąd pobierania zbiorczych kart godzin:", e);
-    // W przypadku błędu bazy, generujemy dane testowe dla Managera w Demo
-    const mockData: TimesheetEntry[] = [
-      { id: 1, userId: 1, date: `${year}-${monthStr}-01`, startTime: "10:00", endTime: "18:00", remarks: "Standardowa zmiana", isLocked: false, userName: "Adam Wiśniewski", position: "Instruktor Driftu" },
-      { id: 2, userId: 1, date: `${year}-${monthStr}-01`, startTime: "16:00", endTime: "22:00", remarks: "Nakładający się dyżur (Konflikt)", isLocked: false, userName: "Adam Wiśniewski", position: "Instruktor Driftu" },
-      { id: 3, userId: 4, date: `${year}-${monthStr}-02`, startTime: "12:00", endTime: "20:00", remarks: "Obsługa klienta", isLocked: false, userName: "Katarzyna Zając", position: "Obsługa Klienta" },
-      { id: 4, userId: 5, date: `${year}-${monthStr}-03`, startTime: "08:00", endTime: "16:00", remarks: "Trening rano", isLocked: false, userName: "Tomasz Wójcik", position: "Instruktor Pro" }
-    ];
-    return { success: true, data: mockData, mocked: true };
+    return { success: false, data: [], error: "Błąd bazy danych podczas pobierania zbiorczych kart godzin." };
   }
 }

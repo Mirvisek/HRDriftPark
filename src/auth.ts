@@ -8,49 +8,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "text" },
         password: { label: "Hasło", type: "password" },
-        isDemo: { label: "Is Demo", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials) return null;
         
-        const { email, password, isDemo } = credentials;
-        
-        // Obsługa kont demo
-        if (
-          isDemo === "true" ||
-          email === "owner@driftpark.pl" ||
-          email === "manager@driftpark.pl" ||
-          email === "pracownik@driftpark.pl"
-        ) {
-          if (email === "owner@driftpark.pl") {
-            return {
-              id: "demo-owner-id",
-              name: "Jan Kowalski",
-              email: "owner@driftpark.pl",
-              role: "owner",
-              position: "Właściciel",
-              isDemo: true,
-            };
-          } else if (email === "manager@driftpark.pl") {
-            return {
-              id: "demo-manager-id",
-              name: "Marek Nowak",
-              email: "manager@driftpark.pl",
-              role: "manager",
-              position: "Menedżer Toru",
-              isDemo: true,
-            };
-          } else if (email === "pracownik@driftpark.pl") {
-            return {
-              id: "demo-employee-id",
-              name: "Adam Wiśniewski",
-              email: "pracownik@driftpark.pl",
-              role: "employee",
-              position: "Instruktor Driftu",
-              isDemo: true,
-            };
-          }
-        }
+        const { email, password } = credentials;
         
         // Standardowa autoryzacja za pomocą bazy danych
         try {
@@ -75,12 +37,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             }
           }
         } catch (e) {
-          console.error("Błąd połączenia z bazą danych podczas logowania, fallback do kont demo:", e);
+          console.error("Błąd połączenia z bazą danych podczas logowania:", e);
         }
         
         return null;
       },
     }),
+
   ],
   callbacks: {
     jwt({ token, user }) {

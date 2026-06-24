@@ -63,14 +63,6 @@ export async function saveWorkScheduleEntry(
     return { success: false, error: "Brak uprawnień do edycji grafiku." };
   }
 
-  const isDemo = (session.user as any).isDemo;
-  if (isDemo) {
-    // W trybie demo mockujemy udany zapis i powiadomienia
-    if (leadUserId) await sendSystemNotification(leadUserId, `Zostałeś przypisany jako Osoba Prowadząca w dniu ${dateStr}.`);
-    if (supportUserId) await sendSystemNotification(supportUserId, `Zostałeś przypisany jako Osoba Wspomagająca w dniu ${dateStr}.`);
-    return { success: true, mocked: true };
-  }
-
   try {
     // Sprawdź czy wpis już istnieje
     const existing = await db
@@ -119,37 +111,8 @@ export async function generateSchedule(year: number, month: number) {
     return { success: false, error: "Brak uprawnień." };
   }
 
-  const isDemo = (session.user as any).isDemo;
   const monthStr = String(month).padStart(2, '0');
   const daysInMonth = new Date(year, month, 0).getDate();
-
-  if (isDemo) {
-    // Generowanie mockowe w trybie demo
-    const generated: ScheduleEntry[] = [];
-    const mockUsers = [
-      { id: 1, name: "Adam Wiśniewski" },
-      { id: 4, name: "Katarzyna Zając" },
-      { id: 5, name: "Tomasz Wójcik" }
-    ];
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${monthStr}-${String(day).padStart(2, '0')}`;
-      // Prosty podział rotacyjny dla realizmu
-      const lead = mockUsers[day % mockUsers.length];
-      const support = mockUsers[(day + 1) % mockUsers.length];
-      
-      generated.push({
-        date: dateStr,
-        leadUserId: lead.id,
-        supportUserId: support.id,
-        remarks: "Generowanie demo (automatyczne)",
-        leadName: lead.name,
-        supportName: support.name
-      });
-    }
-
-    return { success: true, data: generated, mocked: true };
-  }
 
   try {
     // Pobierz wszystkich dostępnych pracowników w wybranym miesiącu

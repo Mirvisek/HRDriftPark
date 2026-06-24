@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from "@/db";
-import { availability, users } from "@/db/schema";
+import { availability } from "@/db/schema";
 import { eq, and, like } from "drizzle-orm";
 import { auth } from "@/auth";
 
@@ -41,13 +41,10 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
   }
   
   // Blokada przyszłego miesiąca (np. pracownik planuje na kolejny miesiąc, edycja otwarta do 15. dnia poprzedniego)
-  // Czyli na miesiąc M możemy edytować do 15-go dnia miesiąca M-1.
-  // Przykład: na lipiec (M) możemy edytować do 15 czerwca (M-1).
   const monthsDiff = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
   if (monthsDiff === 1) {
     return currentDay > 15;
   } else if (monthsDiff > 1) {
-    // Odległa przyszłość - pozwalamy edytować
     return false;
   }
   
@@ -71,7 +68,6 @@ export async function getAvailability(userId: number, year: number, month: numbe
     return { success: true, data: results as AvailabilityEntry[] };
   } catch (e) {
     console.error("Błąd pobierania dyspozycyjności z bazy:", e);
-    // Zwracamy pustą listę w przypadku błędu bazy, UI obsłuży to lokalnie (localStorage)
     return { success: false, data: [], error: "Brak połączenia z bazą danych." };
   }
 }
@@ -83,17 +79,11 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
   }
   
   const userRole = (session.user as any).role;
-  const isDemo = (session.user as any).isDemo;
   
   // Sprawdzenie blokady
   const isLocked = await checkIsLocked(dateStr, userRole);
   if (isLocked) {
     return { success: false, error: "Edycja dyspozycyjności na ten okres została zablokowana (minął 15. dzień miesiąca)." };
-  }
-  
-  if (isDemo) {
-    // W trybie demo mockujemy udany zapis
-    return { success: true, mocked: true, message: "Zapisano w trybie demo (lokalnie)." };
   }
   
   try {
@@ -128,7 +118,7 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
     return { success: true };
   } catch (e) {
     console.error("Błąd zapisu dyspozycyjności w bazie:", e);
-    return { success: false, dbDown: true, error: "Błąd bazy danych. Zmiana zostanie zapisana tylko w pamięci przeglądarki." };
+    return { success: false, error: "Błąd zapisu w bazie danych." };
   }
 }
 
@@ -140,11 +130,6 @@ export async function reviewAvailability(id: number, statusManager: 'accepted' |
   const role = (session.user as any).role;
   if (role !== 'owner' && role !== 'manager') {
     return { success: false, error: "Brak uprawnień menedżerskich." };
-  }
-  
-  const isDemo = (session.user as any).isDemo;
-  if (isDemo) {
-    return { success: true, mocked: true };
   }
   
   try {

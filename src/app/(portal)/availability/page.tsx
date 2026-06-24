@@ -153,13 +153,7 @@ export default function AvailabilityPage() {
     if (nextStatus !== null) {
       const res = await saveAvailability(currentUser.id, dateStr, nextStatus);
       if (res.success) {
-        if (!res.mocked) {
-          setStatusMsg({ type: 'success', text: `Zapisano status dla dnia ${dayNum} w bazie.` });
-        } else {
-          setStatusMsg({ type: 'success', text: `Zapisano w trybie demo (lokalnie) dla dnia ${dayNum}.` });
-        }
-      } else if (res.dbDown) {
-        setStatusMsg({ type: 'warning', text: res.error || 'Zapisano w pamięci przeglądarki.' });
+        setStatusMsg({ type: 'success', text: `Zapisano status dla dnia ${dayNum} w bazie.` });
       } else {
         setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu.' });
         // Przywróć poprzedni stan
@@ -170,7 +164,7 @@ export default function AvailabilityPage() {
       // W naszej uproszczonej logice po prostu wyłączamy status na serwerze
       // Dla uproszczenia, w Drizzle możemy po prostu zaktualizować na status
       const res = await saveAvailability(currentUser.id, dateStr, 'unavailable', 'deleted');
-      if (!res.success && !res.dbDown) {
+      if (!res.success) {
         fetchAvailability();
       }
     }
@@ -215,9 +209,7 @@ export default function AvailabilityPage() {
     if (res.success) {
       setStatusMsg({
         type: 'success',
-        text: res.mocked
-          ? `[Demo] Wysyłano powiadomienie Push do pracownika: "${notificationMsg}"`
-          : `Wysłano powiadomienie systemowe do pracownika.`
+        text: `Wysłano powiadomienie systemowe do pracownika.`
       });
     } else {
       setStatusMsg({ type: 'error', text: 'Błąd podczas wysyłania powiadomienia.' });
@@ -504,12 +496,12 @@ export default function AvailabilityPage() {
             </div>
           )}
 
-          {/* Symulacja dla celów demonstracyjnych */}
-          {currentUser && currentUser.isDemo && (
+          {/* Narzędzia symulacji blokad (Widoczne dla Menedżera / Właściciela do celów testowych) */}
+          {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager') && (
             <div className="glass-card rounded-2xl p-6 border border-brand-gold/10 bg-brand-gold/5 space-y-4">
               <h4 className="text-xs font-extrabold uppercase text-brand-gold tracking-wider flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" />
-                <span>Narzędzia Demo</span>
+                <span>Narzędzia Testowe</span>
               </h4>
               <p className="text-[10px] text-[#a0a0a0]">
                 Użyj poniższego przełącznika, aby przetestować automatyczne zablokowanie edycji po 15-stym dniu miesiąca.

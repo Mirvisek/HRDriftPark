@@ -103,9 +103,7 @@ export default function SchedulePage() {
 
       setStatusMsg({
         type: 'success',
-        text: res.mocked 
-          ? `[Demo] Wygenerowano grafik automatyczny na podstawie rotacji demonstracyjnej!`
-          : `Wygenerowano grafik automatycznie na podstawie zaakceptowanych dyspozycyjności pracowników!`
+        text: `Wygenerowano grafik automatycznie na podstawie zaakceptowanych dyspozycyjności pracowników!`
       });
     } else {
       setStatusMsg({ type: 'error', text: res.error || 'Nie udało się wygenerować grafiku.' });
@@ -147,13 +145,9 @@ export default function SchedulePage() {
         targetItem.remarks
       );
       if (res.success) {
-        if (res.mocked) {
-          setStatusMsg({ type: 'success', text: `Zaktualizowano wpis dla dnia ${dateStr} w trybie demo.` });
-        } else {
-          setStatusMsg({ type: 'success', text: `Zapisano zmiany w grafiku i powiadomiono pracowników dla dnia ${dateStr}.` });
-        }
+        setStatusMsg({ type: 'success', text: `Zapisano zmiany w grafiku i powiadomiono pracowników dla dnia ${dateStr}.` });
       } else {
-        setStatusMsg({ type: 'warning', text: 'Zapisano zmianę lokalnie (brak połączenia z bazą).' });
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu w bazie danych.' });
       }
     }
   };
