@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { getTimesheets, saveTimesheet, deleteTimesheet, checkTimesheetLocked, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
@@ -49,6 +49,19 @@ export default function TimesheetPage() {
     "", "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
     "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
   ];
+
+  const memoizedPDF = useMemo(() => {
+    if (!currentUser) return null;
+    return (
+      <TimesheetPDF
+        entries={entries}
+        employeeName={currentUser.name}
+        position={currentUser.position}
+        monthName={monthNames[month]}
+        year={year}
+      />
+    );
+  }, [entries, currentUser, month, year]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -225,17 +238,9 @@ export default function TimesheetPage() {
             </button>
           )}
 
-          {isMounted && currentUser && (
+          {isMounted && currentUser && memoizedPDF && (
             <PDFDownloadLink
-              document={
-                <TimesheetPDF
-                  entries={entries}
-                  employeeName={currentUser.name}
-                  position={currentUser.position}
-                  monthName={monthNames[month]}
-                  year={year}
-                />
-              }
+              document={memoizedPDF}
               fileName={`karta_godzin_${currentUser.name.replace(/\s+/g, '_')}_${monthNames[month]}_${year}.pdf`}
               className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer"
             >
