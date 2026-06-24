@@ -48,7 +48,7 @@ export default function AvailabilityPage() {
         }
       });
     }
-  }, [currentUser]);
+  }, [currentUser?.id, currentUser?.role]);
 
   // Sprawdzanie czy edycja jest zablokowana
   useEffect(() => {
@@ -59,7 +59,7 @@ export default function AvailabilityPage() {
     checkIsLocked(dateStr, currentUser.role).then((locked: boolean) => {
       setIsLocked(simulatedPost15 ? true : locked);
     });
-  }, [currentDate, currentUser, simulatedPost15, month, year]);
+  }, [currentDate, currentUser?.role, simulatedPost15, month, year]);
 
   // Pobieranie dyspozycyjności
   const fetchAvailability = async () => {
@@ -103,7 +103,7 @@ export default function AvailabilityPage() {
 
   useEffect(() => {
     fetchAvailability();
-  }, [viewMode, selectedEmployeeId, currentDate, currentUser]);
+  }, [viewMode, selectedEmployeeId, currentDate, currentUser?.id]);
 
   const handleDayClick = async (dayNum: number) => {
     if (!currentUser) return;

@@ -76,7 +76,7 @@ export default function TimesheetPage() {
     checkTimesheetLocked(year, month, currentUser.role).then((locked: boolean) => {
       setIsLocked(simulatedLocked ? true : locked);
     });
-  }, [currentDate, currentUser, simulatedLocked, year, month]);
+  }, [currentDate, currentUser?.role, simulatedLocked, year, month]);
 
   const fetchTimesheetsList = async () => {
     if (!currentUser) return;
@@ -107,7 +107,7 @@ export default function TimesheetPage() {
 
   useEffect(() => {
     fetchTimesheetsList();
-  }, [currentDate, currentUser]);
+  }, [currentDate, currentUser?.id]);
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
