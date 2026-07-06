@@ -6,7 +6,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { auth, signOut } from "@/auth";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { sendMail } from "@/lib/mail";
+import { sendMail, getSetting } from "@/lib/mail";
 
 /**
  * Zmienia hasło zalogowanego użytkownika (używane przy wymuszonej zmianie przy pierwszym logowaniu)
@@ -86,7 +86,7 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
       .where(eq(users.id, user.id));
 
     // Przygotowanie linku resetującego
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getSetting('site_url', process.env.NEXTAUTH_URL || "http://localhost:3000");
     const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
     console.log(`[Auth Forgot] Wygenerowano token resetu dla ${email}. Wysyłanie e-maila...`);

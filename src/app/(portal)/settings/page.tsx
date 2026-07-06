@@ -51,14 +51,15 @@ export default function SettingsPage() {
     birthDate: '',
   });
 
-  // Dane SMTP
+  // Dane SMTP & Domena
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: '',
     smtp_port: '587',
     smtp_secure: 'false',
     smtp_user: '',
     smtp_password: '',
-    smtp_from: 'Drift Park Extreme <no-reply@driftparkextreme.pl>'
+    smtp_from: 'Drift Park Extreme <no-reply@driftparkextreme.pl>',
+    site_url: ''
   });
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
 
@@ -574,6 +575,19 @@ export default function SettingsPage() {
                       {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Adres URL strony (Własna domena)</label>
+                  <input
+                    type="url"
+                    value={smtpSettings.site_url || ''}
+                    onChange={e => setSmtpSettings(prev => ({ ...prev, site_url: e.target.value }))}
+                    placeholder="np. https://hr.driftparkextreme.pl"
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                  <p className="text-[9px] text-[#555] mt-1">
+                    Adres URL wykorzystywany do generowania linków w wiadomościach e-mail (np. reset hasła, powitanie pracownika).
+                  </p>
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Adres nadawcy (From)</label>

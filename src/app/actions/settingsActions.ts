@@ -5,7 +5,7 @@ import { users, settings } from "@/db/schema";
 import { eq, ne } from "drizzle-orm";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
-import { sendMail } from "@/lib/mail";
+import { sendMail, getSetting } from "@/lib/mail";
 
 /**
  * Zabezpiecza akcje ustawień - pozwala na dostęp tylko dla ról 'owner' oraz 'technik'
@@ -159,7 +159,7 @@ export async function createUserAction(userData: {
     console.log(`[Settings] Utworzono konto dla ${email} z hasłem tymczasowym: ${tempPassword}`);
 
     // Pobieranie adresu URL strony do linku w e-mailu
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = await getSetting('site_url', process.env.NEXTAUTH_URL || "http://localhost:3000");
 
     // Budowanie wiadomości e-mail z danymi logowania
     const emailHtml = `

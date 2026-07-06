@@ -4,9 +4,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { getTimesheets, saveTimesheet, deleteTimesheet, checkTimesheetLocked, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
-import { Plus, Trash2, FileText, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert, Edit2 } from 'lucide-react';
+import { Plus, Trash2, FileText, FileSpreadsheet, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert, Edit2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { TimesheetPDF } from '@/components/TimesheetPDF';
+import { exportTimesheetToExcel } from '@/lib/excelExport';
 
 // Dynamiczny import linku pobierania react-pdf, aby uniknąć błędów SSR (Server-Side Rendering)
 const PDFDownloadLink = dynamic(
@@ -310,6 +311,23 @@ export default function TimesheetPage() {
                 </>
               )}
             </PDFDownloadLink>
+          )}
+
+          {isMounted && currentUser && (
+            <button
+              onClick={() => exportTimesheetToExcel({
+                entries,
+                employeeName: currentUser.name,
+                position: currentUser.position,
+                monthName: monthNames[month],
+                year,
+                month
+              })}
+              className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-green-500" />
+              <span>Eksportuj Excel</span>
+            </button>
           )}
 
           <div className="flex bg-[#0a0a0a] border border-white/10 rounded-lg p-1">
