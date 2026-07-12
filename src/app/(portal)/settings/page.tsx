@@ -18,7 +18,8 @@ import {
   Eye,
   EyeOff,
   Plus,
-  X
+  X,
+  ClipboardList
 } from 'lucide-react';
 import { 
   getSettingsAction, 
@@ -26,13 +27,19 @@ import {
   getUsersAction, 
   createUserAction, 
   deleteUserAction,
-  testSmtpConnectionAction
+  testSmtpConnectionAction,
+  updateUserRateAction
 } from '@/app/actions/settingsActions';
+import { 
+  getTaskTemplatesAction, 
+  saveTaskTemplateAction, 
+  deleteTaskTemplateAction 
+} from '@/app/actions/taskActions';
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'smtp'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'smtp' | 'tasks'>('users');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
@@ -49,7 +56,13 @@ export default function SettingsPage() {
     role: 'employee' as 'owner' | 'manager' | 'employee' | 'technik',
     position: 'Pracownik toru',
     birthDate: '',
+    hourlyRate: 0,
   });
+
+  // Szablony zadań stałych
+  const [templatesList, setTemplatesList] = useState<any[]>([]);
+  const [newTemplateTitle, setNewTemplateTitle] = useState('');
+  const [newTemplateDay, setNewTemplateDay] = useState<number>(1); // Poniedziałek
 
   // Dane SMTP & Domena
   const [smtpSettings, setSmtpSettings] = useState({
@@ -80,9 +93,10 @@ export default function SettingsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [usersRes, settingsRes] = await Promise.all([
+      const [usersRes, settingsRes, templatesRes] = await Promise.all([
         getUsersAction(),
-        getSettingsAction()
+        getSettingsAction(),
+        getTaskTemplatesAction()
       ]);
 
       if (usersRes.success) {
@@ -93,6 +107,9 @@ export default function SettingsPage() {
           ...prev,
           ...settingsRes.settings
         }));
+      }
+      if (templatesRes.success) {
+        setTemplatesList(templatesRes.data || []);
       }
     } catch (err) {
       console.error("Błąd ładowania ustawień:", err);
@@ -119,6 +136,7 @@ export default function SettingsPage() {
           role: 'employee',
           position: 'Pracownik toru',
           birthDate: '',
+          hourlyRate: 0,
         });
         // Ponowne załadowanie listy
         const usersRes = await getUsersAction();
@@ -278,6 +296,17 @@ export default function SettingsPage() {
           <SettingsIcon className="w-4 h-4" />
           <span>SMTP & E-mail</span>
         </button>
+        <button
+          onClick={() => { setActiveTab('tasks'); setStatusMsg(null); }}
+          className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'tasks'
+              ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+              : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          <span>Szablony zadań</span>
+        </button>
       </div>
 
       {/* Zawartość Zakładki: UŻYTKOWNICY */}
@@ -386,6 +415,17 @@ export default function SettingsPage() {
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   />
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Stawka godzinowa (PLN/h)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={newUser.hourlyRate}
+                    onChange={e => setNewUser(prev => ({ ...prev, hourlyRate: Number(e.target.value) }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
                 <div className="md:col-span-2 flex justify-end gap-3 pt-2">
                   <button
                     type="button"
@@ -420,6 +460,7 @@ export default function SettingsPage() {
                     <th className="p-4">E-mail</th>
                     <th className="p-4">Stanowisko</th>
                     <th className="p-4">Rola</th>
+                    <th className="p-4">Stawka</th>
                     <th className="p-4">Data urodzenia</th>
                     <th className="p-4 text-center">Pierwsze logowanie</th>
                     <th className="p-4 text-right">Akcje</th>
@@ -440,6 +481,30 @@ export default function SettingsPage() {
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${roleBadges[u.role] || ''}`}>
                             {roleNames[u.role] || u.role}
                           </span>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              defaultValue={u.hourlyRate || 0}
+                              onBlur={async (e) => {
+                                const val = Number(e.target.value);
+                                if (val !== u.hourlyRate) {
+                                  const res = await updateUserRateAction(u.id, val);
+                                  if (res.success) {
+                                    setStatusMsg({ type: 'success', text: `Zaktualizowano stawkę dla ${u.displayName} na ${val} PLN/h.` });
+                                    setUsersList(prev => prev.map(item => item.id === u.id ? { ...item, hourlyRate: val } : item));
+                                  } else {
+                                    setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu stawki.' });
+                                    e.target.value = String(u.hourlyRate || 0);
+                                  }
+                                }
+                              }}
+                              className="w-14 px-1.5 py-1 bg-[#141414] border border-white/10 rounded text-center text-xs text-white focus:outline-none focus:border-brand-gold transition font-semibold"
+                            />
+                            <span className="text-[#555] text-[10px]">PLN/h</span>
+                          </div>
                         </td>
                         <td className="p-4 text-[#a0a0a0] font-mono">
                           <span className="flex items-center gap-1.5">
@@ -638,6 +703,130 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'tasks' && (
+        <div className="space-y-6 animate-fadeIn">
+          <div className="glass-card p-6 rounded-2xl border border-white/10 relative overflow-hidden bg-white/[0.01]">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-red via-brand-gold to-brand-red" />
+            <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-brand-gold" />
+              <span>Dodaj stałe zadanie do szablonu</span>
+            </h4>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newTemplateTitle.trim()) return;
+              setActionLoading(true);
+              try {
+                const res = await saveTaskTemplateAction(newTemplateTitle, newTemplateDay);
+                if (res.success) {
+                  setNewTemplateTitle('');
+                  const templatesRes = await getTaskTemplatesAction();
+                  if (templatesRes.success) setTemplatesList(templatesRes.data || []);
+                  setStatusMsg({ type: 'success', text: 'Dodano szablon zadania pomyślnie.' });
+                } else {
+                  setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu szablonu.' });
+                }
+              } catch (err) {
+                setStatusMsg({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+              } finally {
+                setActionLoading(false);
+              }
+            }} className="flex flex-col md:flex-row gap-4 items-end">
+              <div className="flex-1 w-full">
+                <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Treść zadania</label>
+                <input
+                  type="text"
+                  required
+                  value={newTemplateTitle}
+                  onChange={e => setNewTemplateTitle(e.target.value)}
+                  placeholder="np. Sprawdzić ciśnienie w oponach gokartów"
+                  className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                />
+              </div>
+              <div className="w-full md:w-48">
+                <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Dzień tygodnia</label>
+                <select
+                  value={newTemplateDay}
+                  onChange={e => setNewTemplateDay(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                >
+                  <option value={1}>Poniedziałek</option>
+                  <option value={2}>Wtorek</option>
+                  <option value={3}>Środa</option>
+                  <option value={4}>Czwartek</option>
+                  <option value={5}>Piątek</option>
+                  <option value={6}>Sobota</option>
+                  <option value={0}>Niedziela</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={actionLoading}
+                className="px-6 py-2.5 bg-gradient-to-r from-brand-red to-brand-gold text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-95 transition cursor-pointer flex items-center justify-center gap-2 shrink-0 h-[38px] md:h-auto"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Dodaj szablon</span>
+              </button>
+            </form>
+          </div>
+
+          <div className="glass-card rounded-2xl border border-white/5 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/2 text-[#a0a0a0] font-bold uppercase tracking-wider">
+                    <th className="p-4 w-[20%]">Dzień tygodnia</th>
+                    <th className="p-4 w-[65%]">Zadanie stałe (poza ruchem)</th>
+                    <th className="p-4 text-right w-[15%]">Akcje</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 bg-[#121212]">
+                  {templatesList.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="p-8 text-center text-xs text-[#555] italic">
+                        Brak zdefiniowanych szablonów zadań stałych. Dodaj pierwsze zadanie powyżej.
+                      </td>
+                    </tr>
+                  ) : (
+                    templatesList.map(t => {
+                      const days = ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'];
+                      return (
+                        <tr key={t.id} className="hover:bg-white/2 transition">
+                          <td className="p-4 font-bold text-white font-mono">
+                            {days[t.dayOfWeek]}
+                          </td>
+                          <td className="p-4 text-[#e0e0e0] font-semibold text-xs">
+                            {t.title}
+                          </td>
+                          <td className="p-4 text-right">
+                            <button
+                              onClick={async () => {
+                                if (!confirm('Czy na pewno chcesz usunąć to zadanie z szablonu?')) return;
+                                const res = await deleteTaskTemplateAction(t.id);
+                                if (res.success) {
+                                  setTemplatesList(prev => prev.filter(item => item.id !== t.id));
+                                  setStatusMsg({ type: 'success', text: 'Usunięto szablon zadania.' });
+                                } else {
+                                  setStatusMsg({ type: 'error', text: res.error || 'Błąd usuwania szablonu.' });
+                                }
+                              }}
+                              className="p-1.5 hover:bg-brand-red/10 text-[#555] hover:text-brand-red rounded-lg transition cursor-pointer"
+                              title="Usuń szablon"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

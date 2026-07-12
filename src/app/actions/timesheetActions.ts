@@ -163,3 +163,63 @@ export async function getAllTimesheets(year: number, month: number) {
     return { success: false, data: [], error: "Błąd bazy danych podczas pobierania zbiorczych kart godzin." };
   }
 }
+
+export async function getPayrollSummary(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  const role = (session.user as any).role;
+  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
+    return { success: false, error: "Brak uprawnień" };
+  }
+
+  try {
+    const monthStr = String(month).padStart(2, '0');
+    const pattern = `${year}-${monthStr}-%`;
+
+    // Pobierz wszystkich użytkowników ze stawkami
+    const allUsers = await db
+      .select({
+        id: users.id,
+        name: users.displayName,
+        role: users.role,
+        position: users.position,
+        hourlyRate: users.hourlyRate
+      })
+      .from(users);
+
+    // Pobierz wszystkie wpisy czasu pracy dla tego miesiąca
+    const allTimesheets = await db
+      .select()
+      .from(timesheets)
+      .where(like(timesheets.date, pattern));
+
+    // Wylicz sumę godzin i wypłatę
+    const payrollData = allUsers.map(user => {
+      const userSheets = allTimesheets.filter(t => t.userId === user.id);
+      let totalSeconds = 0;
+      userSheets.forEach(t => {
+        const [sh, sm] = t.startTime.split(':').map(Number);
+        const [eh, em] = t.endTime.split(':').map(Number);
+        const diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
+        if (diffSec > 0) totalSeconds += diffSec;
+      });
+      const totalHours = Math.round((totalSeconds / 3600) * 100) / 100;
+      const payout = Math.round((totalHours * user.hourlyRate) * 100) / 100;
+
+      return {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        position: user.position,
+        hourlyRate: user.hourlyRate,
+        totalHours,
+        payout
+      };
+    });
+
+    return { success: true, data: payrollData };
+  } catch (e: any) {
+    console.error("Błąd pobierania podsumowania płac:", e);
+    return { success: false, error: "Błąd bazy danych podczas wyliczania płac." };
+  }
+}

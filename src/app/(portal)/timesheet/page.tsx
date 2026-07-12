@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic';
 import { TimesheetPDF } from '@/components/TimesheetPDF';
 import { exportTimesheetToExcel } from '@/lib/excelExport';
 import { getWorkSchedule } from '@/app/actions/scheduleActions';
+import { getCurrentUserRateAction } from '@/app/actions/userActions';
 
 // Dynamiczny import linku pobierania react-pdf, aby uniknąć błędów SSR (Server-Side Rendering)
 const PDFDownloadLink = dynamic(
@@ -29,6 +30,7 @@ export default function TimesheetPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [entries, setEntries] = useState<TimesheetEntry[]>([]);
   const [monthlySchedule, setMonthlySchedule] = useState<any[]>([]);
+  const [userRate, setUserRate] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [simulatedLocked, setSimulatedLocked] = useState(false);
@@ -130,9 +132,10 @@ export default function TimesheetPage() {
     if (!currentUser) return;
     setLoading(true);
     
-    const [res, scheduleRes] = await Promise.all([
+    const [res, scheduleRes, rateRes] = await Promise.all([
       getTimesheets(currentUser.id, year, month),
-      getWorkSchedule(year, month)
+      getWorkSchedule(year, month),
+      getCurrentUserRateAction()
     ]);
     
     // Załaduj z localStorage jako fallback
@@ -164,6 +167,10 @@ export default function TimesheetPage() {
         setFormStart(hours.openTime);
         setFormEnd(hours.closeTime);
       }
+    }
+
+    if (rateRes.success) {
+      setUserRate(rateRes.rate);
     }
 
     setLoading(false);
@@ -533,6 +540,20 @@ export default function TimesheetPage() {
               Suma godzin z zatwierdzonych i oczekujących wpisów w wybranym miesiącu.
             </p>
           </div>
+
+          {/* Szacowane Wynagrodzenie */}
+          {userRate > 0 && (
+            <div className="glass-card rounded-2xl p-6 flex flex-col items-center justify-center text-center space-y-2 relative overflow-hidden border border-green-500/10">
+              <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-green-500/20" />
+              <h3 className="text-xs font-bold text-[#a0a0a0] uppercase tracking-wider">Szacowane Wynagrodzenie</h3>
+              <div className="text-4xl font-black text-green-400 font-display tracking-tight">
+                {(Number(calculateTotalHours()) * userRate).toFixed(2)}<span className="text-white text-lg font-bold ml-1">PLN</span>
+              </div>
+              <p className="text-[10px] text-[#555]">
+                Wyliczone na podstawie Twojej stawki godzinowej: <span className="text-white font-semibold">{userRate} PLN/h</span>.
+              </p>
+            </div>
+          )}
 
           {/* Narzędzia symulacji blokad (Widoczne dla Menedżera / Właściciela do celów testowych) */}
           {currentUser && (currentUser.role === 'owner' || currentUser.role === 'manager' || currentUser.role === 'technik') && (

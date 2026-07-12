@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { getAllTimesheets, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
 import { getEmployees, UserEntry } from '@/app/actions/userActions';
-import { LayoutDashboard, Users, AlertTriangle, ShieldCheck, Clock, Calendar } from 'lucide-react';
+import { LayoutDashboard, Users, AlertTriangle, ShieldCheck, Clock, Calendar, DollarSign } from 'lucide-react';
 
 export default function AdminDashboardPage() {
   const { data: session } = useSession();
@@ -17,7 +17,7 @@ export default function AdminDashboardPage() {
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [allEntries, setAllEntries] = useState<TimesheetEntry[]>([]);
-  const [employees, setEmployees] = useState<UserEntry[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [conflictDates, setConflictDates] = useState<string[]>([]);
   
@@ -45,7 +45,6 @@ export default function AdminDashboardPage() {
       setAllEntries(res.data);
       
       // Sprawdzanie konfliktów na poziomie poszczególnych pracowników
-      // Grupa wpisów na pracownika, a potem detekcja konfliktów
       const userEntriesMap: Record<number, TimesheetEntry[]> = {};
       res.data.forEach((entry: TimesheetEntry) => {
         if (!userEntriesMap[entry.userId]) userEntriesMap[entry.userId] = [];
@@ -75,7 +74,7 @@ export default function AdminDashboardPage() {
     );
   }
 
-  // Obliczenia podsumowań dla pracowników
+  // Obliczenia podsumowań dla pracowników ze stawkami
   const employeeSummaries = employees.map(emp => {
     const empEntries = allEntries.filter(entry => entry.userId === emp.id);
     let totalMinutes = 0;
@@ -84,12 +83,16 @@ export default function AdminDashboardPage() {
       const [eh, em] = entry.endTime.split(':').map(Number);
       totalMinutes += (eh * 60 + em) - (sh * 60 + sm);
     });
+    const hours = totalMinutes / 60;
+    const rate = emp.hourlyRate || 0;
+    const cost = hours * rate;
     const hasConflicts = empEntries.some(e => conflictDates.includes(e.date));
 
     return {
       ...emp,
-      totalHours: (totalMinutes / 60).toFixed(2),
+      totalHours: hours.toFixed(2),
       entriesCount: empEntries.length,
+      cost,
       hasConflicts
     };
   });
@@ -123,7 +126,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Stats Widgets */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="glass-card rounded-2xl p-6 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/10">
             <Users className="w-6 h-6" />
@@ -140,9 +143,21 @@ export default function AdminDashboardPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-white font-display">
-              {employeeSummaries.reduce((sum, e) => sum + Number(e.totalHours), 0).toFixed(2)}h
+              {employeeSummaries.reduce((sum, e) => sum + Number(e.totalHours), 0).toFixed(1)}h
             </div>
             <div className="text-xs text-[#a0a0a0]">Przepracowanych łącznie</div>
+          </div>
+        </div>
+
+        <div className="glass-card rounded-2xl p-6 flex items-center gap-4 border border-green-500/10 bg-green-500/[0.01]">
+          <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center text-green-400 border border-green-500/10">
+            <DollarSign className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-2xl font-black text-white font-display">
+              {employeeSummaries.reduce((sum, e) => sum + e.cost, 0).toLocaleString('pl-PL', { maximumFractionDigits: 0 })} PLN
+            </div>
+            <div className="text-xs text-[#a0a0a0]">Szacowane koszty płac</div>
           </div>
         </div>
 
@@ -165,29 +180,42 @@ export default function AdminDashboardPage() {
           <div className="glass-card rounded-2xl p-6 space-y-4">
             <h3 className="text-md font-bold text-white font-display flex items-center gap-2">
               <Users className="w-4 h-4 text-brand-gold" />
-              <span>Czas pracy pracowników</span>
+              <span>Czas pracy & Koszty</span>
             </h3>
 
-            <div className="divide-y divide-white/5 space-y-3">
-              {employeeSummaries.map(emp => (
-                <div key={emp.id} className="pt-3 flex justify-between items-center text-xs">
-                  <div>
-                    <div className="font-semibold text-white flex items-center gap-1.5">
-                      <span>{emp.name}</span>
-                      {emp.hasConflicts && (
-                        <span className="px-1.5 py-0.5 rounded bg-brand-red/20 text-brand-red text-[8px] font-extrabold uppercase animate-pulse">
-                          Konflikt
-                        </span>
-                      )}
+            <div className="divide-y divide-white/5 space-y-4">
+              {employeeSummaries.map(emp => {
+                const totalCompanyHours = employeeSummaries.reduce((sum, e) => sum + Number(e.totalHours), 0) || 1;
+                const percentage = Math.min(100, Math.max(0, (Number(emp.totalHours) / totalCompanyHours) * 100));
+                return (
+                  <div key={emp.id} className="pt-3 space-y-2 text-xs">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="font-semibold text-white flex items-center gap-1.5">
+                          <span>{emp.name}</span>
+                          {emp.hasConflicts && (
+                            <span className="px-1.5 py-0.5 rounded bg-brand-red/20 text-brand-red text-[8px] font-extrabold uppercase animate-pulse">
+                              Konflikt
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[#a0a0a0]">{emp.position}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-extrabold text-white text-sm">{emp.totalHours}h</div>
+                        <div className="text-[9px] text-[#555] font-semibold">{emp.cost.toFixed(0)} PLN</div>
+                      </div>
                     </div>
-                    <div className="text-[10px] text-[#a0a0a0]">{emp.position}</div>
+                    {/* Visual load progress bar */}
+                    <div className="w-full h-1.5 bg-[#141414] rounded-full overflow-hidden border border-white/5">
+                      <div 
+                        style={{ width: `${percentage}%` }} 
+                        className="h-full bg-gradient-to-r from-brand-red to-brand-gold rounded-full"
+                      />
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-extrabold text-white text-sm">{emp.totalHours}h</div>
-                    <div className="text-[9px] text-[#555]">{emp.entriesCount} wpisów</div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

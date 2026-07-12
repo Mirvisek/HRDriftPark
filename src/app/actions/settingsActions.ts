@@ -94,6 +94,7 @@ export async function getUsersAction() {
         position: users.position,
         birthDate: users.birthDate,
         mustChangePassword: users.mustChangePassword,
+        hourlyRate: users.hourlyRate,
         createdAt: users.createdAt
       })
       .from(users);
@@ -117,10 +118,11 @@ export async function createUserAction(userData: {
   role: 'owner' | 'manager' | 'employee' | 'technik';
   position: string;
   birthDate: string;
+  hourlyRate: number;
 }) {
   const session = await checkAuth();
 
-  const { firstName, lastName, displayName, email, role, position, birthDate } = userData;
+  const { firstName, lastName, displayName, email, role, position, birthDate, hourlyRate } = userData;
 
   if (!firstName || !lastName || !displayName || !email || !role || !position || !birthDate) {
     return { success: false, error: "Wszystkie pola są wymagane." };
@@ -153,6 +155,7 @@ export async function createUserAction(userData: {
       position: position.trim(),
       birthDate: birthDate.trim(),
       mustChangePassword: true, // Wymuszamy zmianę przy pierwszym logowaniu
+      hourlyRate: hourlyRate || 0,
       isDemo: false
     });
 
@@ -262,5 +265,23 @@ export async function testSmtpConnectionAction(config: {
   } catch (e: any) {
     console.error("[SMTP Test Error]:", e);
     return { success: false, error: e.message || "Nieznany błąd podczas weryfikacji połączenia." };
+  }
+}
+
+export async function updateUserRateAction(userId: number, rate: number) {
+  await checkAuth();
+  if (rate < 0) return { success: false, error: "Stawka nie może być ujemna." };
+
+  try {
+    await db
+      .update(users)
+      .set({ hourlyRate: rate })
+      .where(eq(users.id, userId));
+    
+    console.log(`[Settings] Zaktualizowano stawkę użytkownika ID: ${userId} na: ${rate} PLN/h`);
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd podczas aktualizacji stawki:", e);
+    return { success: false, error: "Błąd bazy danych przy aktualizacji stawki." };
   }
 }

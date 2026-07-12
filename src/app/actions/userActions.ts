@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { users, notifications } from "@/db/schema";
-import { eq, ne } from "drizzle-orm";
+import { eq, ne, desc } from "drizzle-orm";
 import { auth } from "@/auth";
 
 export interface UserEntry {
@@ -27,6 +27,7 @@ export async function getEmployees() {
         role: users.role,
         position: users.position,
         isDemo: users.isDemo,
+        hourlyRate: users.hourlyRate,
       })
       .from(users);
       
@@ -69,10 +70,51 @@ export async function getNotifications() {
       .select()
       .from(notifications)
       .where(eq(notifications.userId, userId))
-      .orderBy(notifications.createdAt);
+      .orderBy(desc(notifications.createdAt));
     return { success: true, data: results };
   } catch (e) {
     console.error("Błąd pobierania powiadomień:", e);
     return { success: false, data: [], error: "Błąd bazy danych przy pobieraniu powiadomień" };
+  }
+}
+
+export async function markNotificationsAsReadAction() {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+
+  const userId = Number((session.user as any).id);
+  if (isNaN(userId)) return { success: false, error: "Niepoprawne ID użytkownika" };
+
+  try {
+    await db
+      .update(notifications)
+      .set({ isRead: true })
+      .where(eq(notifications.userId, userId));
+    return { success: true };
+  } catch (e) {
+    console.error("Błąd aktualizacji powiadomień:", e);
+    return { success: false, error: "Błąd bazy danych podczas odznaczania powiadomień." };
+  }
+}
+
+export async function getCurrentUserRateAction() {
+  const session = await auth();
+  if (!session?.user) return { success: false, rate: 0 };
+  const userId = Number((session.user as any).id);
+  if (!userId) return { success: false, rate: 0 };
+
+  try {
+    const results = await db
+      .select({ hourlyRate: users.hourlyRate })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (results.length > 0) {
+      return { success: true, rate: results[0].hourlyRate };
+    }
+    return { success: false, rate: 0 };
+  } catch (e) {
+    return { success: false, rate: 0 };
   }
 }

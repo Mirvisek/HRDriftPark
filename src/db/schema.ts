@@ -13,6 +13,7 @@ export const users = mysqlTable('users', {
   mustChangePassword: boolean('must_change_password').notNull().default(false),
   resetToken: varchar('reset_token', { length: 255 }),
   resetTokenExpires: timestamp('reset_token_expires'),
+  hourlyRate: int('hourly_rate').notNull().default(0), // Stawka godzinowa w PLN
   isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
@@ -76,6 +77,28 @@ export const pushSubscriptions = mysqlTable('push_subscriptions', {
   endpoint: text('endpoint').notNull(),
   p256dh: text('p256dh').notNull(),
   auth: text('auth').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const taskTemplates = mysqlTable('task_templates', {
+  id: int('id').primaryKey().autoincrement(),
+  title: varchar('title', { length: 255 }).notNull(),
+  dayOfWeek: int('day_of_week').notNull(), // 0 = Niedziela, 1 = Poniedziałek, ..., 6 = Sobota
+  isDemo: boolean('is_demo').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const shiftTasks = mysqlTable('shift_tasks', {
+  id: int('id').primaryKey().autoincrement(),
+  date: date('date', { mode: 'string' }).notNull(), // Format YYYY-MM-DD
+  title: varchar('title', { length: 255 }).notNull(),
+  type: mysqlEnum('type', ['recurring', 'additional']).notNull().default('recurring'), // stałe poza ruchem / dodatkowe
+  priority: mysqlEnum('priority', ['low', 'medium', 'high']).notNull().default('medium'),
+  isCompleted: boolean('is_completed').notNull().default(false),
+  completedBy: int('completed_by'), // userId
+  completedByName: varchar('completed_by_name', { length: 255 }),
+  completedAt: timestamp('completed_at'),
+  isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
