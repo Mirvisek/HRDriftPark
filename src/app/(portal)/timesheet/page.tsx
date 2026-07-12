@@ -4,12 +4,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { getTimesheets, saveTimesheet, deleteTimesheet, checkTimesheetLocked, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
-import { Plus, Trash2, FileText, FileSpreadsheet, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert, Edit2 } from 'lucide-react';
+import { Plus, Trash2, FileText, FileSpreadsheet, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert, Edit2, Bell } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { TimesheetPDF } from '@/components/TimesheetPDF';
 import { exportTimesheetToExcel } from '@/lib/excelExport';
 import { getWorkSchedule } from '@/app/actions/scheduleActions';
 import { getCurrentUserRateAction } from '@/app/actions/userActions';
+import { testPushNotificationAction } from '@/app/actions/pushActions';
 
 // Dynamiczny import linku pobierania react-pdf, aby uniknąć błędów SSR (Server-Side Rendering)
 const PDFDownloadLink = dynamic(
@@ -38,6 +39,7 @@ export default function TimesheetPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingEntry, setEditingEntry] = useState<TimesheetEntry | null>(null);
+  const [testPushLoading, setTestPushLoading] = useState(false);
 
   // Form state
   const [formDate, setFormDate] = useState('');
@@ -397,6 +399,32 @@ export default function TimesheetPage() {
             >
               <FileSpreadsheet className="w-4 h-4 text-green-500" />
               <span>Eksportuj Excel</span>
+            </button>
+          )}
+
+          {isMounted && currentUser && (
+            <button
+              onClick={async () => {
+                setTestPushLoading(true);
+                try {
+                  const res = await testPushNotificationAction();
+                  if (res.success) {
+                    alert("Pomyślnie wysłano testowe powiadomienie push!");
+                  } else {
+                    alert("Nie udało się wysłać powiadomienia. Upewnij się, że wyraziłeś zgodę na powiadomienia w tej przeglądarce oraz zarejestrowałeś urządzenie (subskrypcja następuje automatycznie w tle po 2 sekundach od zalogowania).");
+                  }
+                } catch (e) {
+                  alert("Błąd połączenia z serwerem.");
+                } finally {
+                  setTestPushLoading(false);
+                }
+              }}
+              disabled={testPushLoading}
+              className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              title="Przetestuj powiadomienia push na tym urządzeniu"
+            >
+              <Bell className="w-4 h-4 text-brand-gold animate-pulse" />
+              <span>{testPushLoading ? 'Testowanie...' : 'Testuj Push'}</span>
             </button>
           )}
 

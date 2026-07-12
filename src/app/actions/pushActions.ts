@@ -68,3 +68,29 @@ export async function removeSubscriptionAction(endpoint: string) {
     return { success: false, error: e.message || "Błąd bazy danych" };
   }
 }
+
+export async function testPushNotificationAction() {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, error: "Brak autoryzacji" };
+  }
+
+  const userId = Number((session.user as any).id);
+  if (!userId) {
+    return { success: false, error: "Brak ID użytkownika w sesji" };
+  }
+
+  try {
+    const { sendPushNotification } = await import("@/lib/webPush");
+    const res = await sendPushNotification(
+      userId,
+      "Test Powiadomień Push 🏎️",
+      "Powiadomienia push na Twoim telefonie działają prawidłowo!",
+      "/timesheet"
+    );
+    return res;
+  } catch (e: any) {
+    console.error("[Push Test Error] Wysyłanie:", e);
+    return { success: false, error: e.message || "Błąd podczas wysyłania testowego powiadomienia" };
+  }
+}

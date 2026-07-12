@@ -178,6 +178,18 @@ export async function generateSchedule(year: number, month: number) {
   try {
     // Pobierz wszystkich dostępnych pracowników w wybranym miesiącu
     const pattern = `${year}-${monthStr}-%`;
+
+    // Sprawdź czy są już wpisy w grafiku dla tego miesiąca
+    const existingSchedule = await db
+      .select()
+      .from(workSchedule)
+      .where(like(workSchedule.date, pattern))
+      .limit(1);
+
+    if (existingSchedule.length > 0) {
+      return { success: false, error: "Grafik na ten miesiąc został już wygenerowany. Wprowadzaj ewentualne poprawki bezpośrednio w tabeli klikając na konkretne dni." };
+    }
+
     const availabilities = await db
       .select()
       .from(availability)
