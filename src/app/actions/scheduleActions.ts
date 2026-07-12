@@ -1,11 +1,11 @@
 'use server';
 
 import { db } from "@/db";
-import { workSchedule, availability, users } from "@/db/schema";
+import { workSchedule, availability, users, settings } from "@/db/schema";
 import { eq, and, like } from "drizzle-orm";
 import { auth } from "@/auth";
 import { sendSystemNotification } from "./userActions";
-import { sendPushNotification } from "@/lib/webPush";
+import { sendPushNotification, getFormattedNotification } from "@/lib/webPush";
 
 export interface ScheduleEntry {
   id?: number;
@@ -118,40 +118,72 @@ export async function saveWorkScheduleEntry(
       });
     }
 
-    // Wyślij powiadomienia do przypisanych pracowników (Prowadzący i Wspomagający)
-    if (leadUserId) {
-      await sendSystemNotification(leadUserId, `Zostałeś przypisany jako Osoba Prowadząca w dniu ${dateStr}.`);
-      await sendPushNotification(leadUserId, `Nowy dyżur: Prowadzący`, `Zostałeś przypisany jako Osoba Prowadząca w dniu ${dateStr}.`, `/schedule`);
-    }
-    if (supportUserId) {
-      await sendSystemNotification(supportUserId, `Zostałeś przypisany jako Osoba Wspomagająca w dniu ${dateStr}.`);
-      await sendPushNotification(supportUserId, `Nowy dyżur: Wspomagający`, `Zostałeś przypisany jako Osoba Wspomagająca w dniu ${dateStr}.`, `/schedule`);
-    }
+    // Sprawdź czy grafik na ten miesiąc jest już opublikowany. Jeśli nie, nie wysyłamy żadnych powiadomień.
+    const [yStr, mStr] = dateStr.split('-');
+    const pubKey = `schedule_published_${yStr}_${mStr}`;
+    const pubSetting = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, pubKey))
+      .limit(1);
+    
+    const isPublished = pubSetting.length > 0 && pubSetting[0].value === 'true';
 
-    // Powiadomienia dla osób przypisanych bezpośrednio do wydarzenia
-    if (eventUserIds && eventRemarks) {
-      const ids = eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0);
-      for (const id of ids) {
-        await sendSystemNotification(id, `Zostałeś przypisany do obsługi wydarzenia: ${eventRemarks} w dniu ${dateStr}.`);
-        await sendPushNotification(id, `Przypisanie do wydarzenia`, `Obsługujesz wydarzenie: ${eventRemarks} w dniu ${dateStr}.`, `/schedule`);
+    if (isPublished) {
+      // Wyślij powiadomienia do przypisanych pracowników (Prowadzący i Wspomagający)
+      if (leadUserId) {
+        const msg = await getFormattedNotification(
+          'template_assignment_lead', 
+          { date: dateStr }, 
+          `Zostałeś przypisany jako Osoba Prowadząca w dniu ${dateStr}.`
+        );
+        await sendSystemNotification(leadUserId, msg);
+        await sendPushNotification(leadUserId, `Nowy dyżur: Prowadzący`, msg, `/schedule`);
       }
-    }
-
-    // Jeśli zmieniono godziny otwarcia lub zamknięto lokal, powiadom główną obsadę
-    if (isClosed || openTime || closeTime) {
-      const statusText = isClosed ? "ZAMKNIĘTY" : `otwarty w godzinach ${openTime || '15:00'} - ${closeTime || '20:00'}`;
-      const msg = `Zmiana godzin pracy w dniu ${dateStr}: Lokal jest ${statusText}.`;
-      
-      const recipients = new Set<number>();
-      if (leadUserId) recipients.add(leadUserId);
-      if (supportUserId) recipients.add(supportUserId);
-      if (eventUserIds) {
-        eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0).forEach(id => recipients.add(id));
+      if (supportUserId) {
+        const msg = await getFormattedNotification(
+          'template_assignment_support', 
+          { date: dateStr }, 
+          `Zostałeś przypisany jako Osoba Wspomagająca w dniu ${dateStr}.`
+        );
+        await sendSystemNotification(supportUserId, msg);
+        await sendPushNotification(supportUserId, `Nowy dyżur: Wspomagający`, msg, `/schedule`);
       }
 
-      for (const id of recipients) {
-        await sendSystemNotification(id, msg);
-        await sendPushNotification(id, `Aktualizacja godzin pracy`, msg, `/schedule`);
+      // Powiadomienia dla osób przypisanych bezpośrednio do wydarzenia
+      if (eventUserIds && eventRemarks) {
+        const ids = eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0);
+        for (const id of ids) {
+          const msg = await getFormattedNotification(
+            'template_assignment_event', 
+            { date: dateStr, remarks: eventRemarks }, 
+            `Zostałeś przypisany do obsługi wydarzenia: ${eventRemarks} w dniu ${dateStr}.`
+          );
+          await sendSystemNotification(id, msg);
+          await sendPushNotification(id, `Przypisanie do wydarzenia`, msg, `/schedule`);
+        }
+      }
+
+      // Jeśli zmieniono godziny otwarcia lub zamknięto lokal, powiadom główną obsadę
+      if (isClosed || openTime || closeTime) {
+        const statusText = isClosed ? "ZAMKNIĘTY" : `otwarty w godzinach ${openTime || '15:00'} - ${closeTime || '20:00'}`;
+        const msg = await getFormattedNotification(
+          'template_hours_change',
+          { date: dateStr, status: statusText },
+          `Zmiana godzin pracy w dniu ${dateStr}: Lokal jest ${statusText}.`
+        );
+        
+        const recipients = new Set<number>();
+        if (leadUserId) recipients.add(leadUserId);
+        if (supportUserId) recipients.add(supportUserId);
+        if (eventUserIds) {
+          eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0).forEach(id => recipients.add(id));
+        }
+
+        for (const id of recipients) {
+          await sendSystemNotification(id, msg);
+          await sendPushNotification(id, `Aktualizacja godzin pracy`, msg, `/schedule`);
+        }
       }
     }
 
@@ -263,7 +295,7 @@ export async function generateSchedule(year: number, month: number) {
         supportName: supportUserId ? userMap.get(supportUserId) : undefined,
       });
 
-      // Powiadomienia
+      // Powiadomienia (tylko systemowe, a te zostaną ograniczone w UI lub wyciszone)
       if (leadUserId) await sendSystemNotification(leadUserId, `Automatyczny grafik: Zostałeś przypisany jako Osoba Prowadząca na dzień ${dateStr}.`);
       if (supportUserId) await sendSystemNotification(supportUserId, `Automatyczny grafik: Zostałeś przypisany jako Osoba Wspomagająca na dzień ${dateStr}.`);
     }
@@ -272,5 +304,87 @@ export async function generateSchedule(year: number, month: number) {
   } catch (e) {
     console.error("Błąd generowania grafiku:", e);
     return { success: false, error: "Błąd bazy danych podczas generowania grafiku." };
+  }
+}
+
+export async function checkSchedulePublishedAction(year: number, month: number) {
+  const monthStr = String(month).padStart(2, '0');
+  const key = `schedule_published_${year}_${monthStr}`;
+
+  try {
+    const results = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, key))
+      .limit(1);
+
+    if (results.length > 0 && results[0].value === 'true') {
+      return { success: true, published: true };
+    }
+    return { success: true, published: false };
+  } catch (e) {
+    console.error("Błąd sprawdzania statusu publikacji grafiku:", e);
+    return { success: false, published: false };
+  }
+}
+
+export async function publishScheduleAction(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+
+  const role = (session.user as any).role;
+  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
+    return { success: false, error: "Brak uprawnień." };
+  }
+
+  const monthNames = [
+    "", "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+    "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
+  ];
+  const monthStr = String(month).padStart(2, '0');
+  const key = `schedule_published_${year}_${monthStr}`;
+
+  try {
+    // 1. Zapisz w bazie, że grafik został opublikowany
+    const existing = await db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, key))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(settings)
+        .set({ value: 'true' })
+        .where(eq(settings.key, key));
+    } else {
+      await db.insert(settings).values({
+        key,
+        value: 'true',
+      });
+    }
+
+    // 2. Pobierz treść szablonu i sformatuj
+    const monthNamePL = `${monthNames[month]} ${year}`;
+    const message = await getFormattedNotification(
+      'template_schedule_published',
+      { month: monthNamePL },
+      `Grafik Pracy na ${monthNamePL} został opublikowany! Wejdź w system i sprawdź go!`
+    );
+
+    // 3. Wyślij powiadomienie push do wszystkich aktywnych użytkowników
+    const allUsers = await db
+      .select({ id: users.id })
+      .from(users);
+
+    for (const user of allUsers) {
+      await sendSystemNotification(user.id, message);
+      await sendPushNotification(user.id, "Grafik opublikowany 📅", message, "/schedule");
+    }
+
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd podczas publikacji grafiku:", e);
+    return { success: false, error: "Błąd bazy danych podczas publikacji grafiku." };
   }
 }

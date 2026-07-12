@@ -5,7 +5,8 @@ import { useSession } from 'next-auth/react';
 import { getAllTimesheets, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
 import { getEmployees, UserEntry } from '@/app/actions/userActions';
-import { LayoutDashboard, Users, AlertTriangle, ShieldCheck, Clock, Calendar, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Users, AlertTriangle, ShieldCheck, Clock, Calendar, DollarSign, Send } from 'lucide-react';
+import { sendCustomPushNotificationAction } from '@/app/actions/pushActions';
 
 export default function AdminDashboardPage() {
   const { data: session } = useSession();
@@ -20,6 +21,13 @@ export default function AdminDashboardPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [conflictDates, setConflictDates] = useState<string[]>([]);
+
+  // Stany formularza wysyłania custom push
+  const [customPushUserId, setCustomPushUserId] = useState<number>(0);
+  const [customPushTitle, setCustomPushTitle] = useState('');
+  const [customPushMessage, setCustomPushMessage] = useState('');
+  const [customPushLoading, setCustomPushLoading] = useState(false);
+  const [customPushStatus, setCustomPushStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1; // 1-12
@@ -103,6 +111,43 @@ export default function AdminDashboardPage() {
 
   const prevMonth = () => {
     setCurrentDate(new Date(year, month - 2, 1));
+  };
+
+  const handleSendCustomPush = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customPushTitle.trim() || !customPushMessage.trim()) return;
+
+    setCustomPushLoading(true);
+    setCustomPushStatus(null);
+
+    try {
+      const res = await sendCustomPushNotificationAction(
+        customPushUserId,
+        customPushTitle,
+        customPushMessage
+      );
+
+      if (res.success) {
+        setCustomPushStatus({
+          type: 'success',
+          text: `Pomyślnie wysłano powiadomienie do ${customPushUserId === 0 ? 'wszystkich' : 'wybranego pracownika'}!`
+        });
+        setCustomPushTitle('');
+        setCustomPushMessage('');
+      } else {
+        setCustomPushStatus({
+          type: 'error',
+          text: res.error || 'Nie udało się wysłać powiadomienia.'
+        });
+      }
+    } catch (err) {
+      setCustomPushStatus({
+        type: 'error',
+        text: 'Błąd połączenia z serwerem.'
+      });
+    } finally {
+      setCustomPushLoading(false);
+    }
   };
 
   return (
@@ -218,6 +263,83 @@ export default function AdminDashboardPage() {
               })}
             </div>
           </div>
+
+          {/* Formularz wysyłania custom push */}
+          {isManagerOrOwner && (
+            <div className="glass-card rounded-2xl p-6 space-y-4">
+              <h3 className="text-md font-bold text-white font-display flex items-center gap-2">
+                <Send className="w-4 h-4 text-brand-red" />
+                <span>Wyślij Powiadomienie Push</span>
+              </h3>
+              
+              <form onSubmit={handleSendCustomPush} className="space-y-3.5">
+                {customPushStatus && (
+                  <div className={`p-2.5 rounded-lg text-xs font-semibold ${
+                    customPushStatus.type === 'success' 
+                      ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+                      : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                  }`}>
+                    {customPushStatus.text}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Odbiorca</label>
+                  <select
+                    value={customPushUserId}
+                    onChange={e => setCustomPushUserId(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-red transition cursor-pointer"
+                  >
+                    <option value={0}>📢 Wszyscy pracownicy</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        👤 {emp.firstName} {emp.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Tytuł powiadomienia</label>
+                  <input
+                    type="text"
+                    required
+                    value={customPushTitle}
+                    onChange={e => setCustomPushTitle(e.target.value)}
+                    placeholder="np. Pilna informacja"
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-red transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Treść wiadomości</label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={customPushMessage}
+                    onChange={e => setCustomPushMessage(e.target.value)}
+                    placeholder="np. Dzisiaj zamykamy tor o 19:30 z powodu prac serwisowych."
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-red transition resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={customPushLoading || !customPushTitle.trim() || !customPushMessage.trim()}
+                  className="w-full py-2.5 bg-gradient-to-r from-brand-red to-brand-gold text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-90 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {customPushLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-brand-dark"></div>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Wyślij Push</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
 
         {/* Right: Detailed Logs & Conflicts */}

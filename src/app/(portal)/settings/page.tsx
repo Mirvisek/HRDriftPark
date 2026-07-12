@@ -64,7 +64,7 @@ export default function SettingsPage() {
   const [newTemplateTitle, setNewTemplateTitle] = useState('');
   const [newTemplateDay, setNewTemplateDay] = useState<number>(1); // Poniedziałek
 
-  // Dane SMTP & Domena
+  // Dane SMTP, Domena & Szablony Powiadomień
   const [smtpSettings, setSmtpSettings] = useState({
     smtp_host: '',
     smtp_port: '587',
@@ -72,7 +72,15 @@ export default function SettingsPage() {
     smtp_user: '',
     smtp_password: '',
     smtp_from: 'Drift Park Extreme <no-reply@driftparkextreme.pl>',
-    site_url: ''
+    site_url: '',
+    template_shift_reminder_lead: 'Jutro masz zaplanowaną zmianę jako Osoba Prowadząca.',
+    template_shift_reminder_support: 'Jutro masz zaplanowaną zmianę jako Osoba Wspomagająca.',
+    template_shift_reminder_event: 'Jutro obsługujesz wydarzenie: {remarks}.',
+    template_assignment_lead: 'Zostałeś przypisany jako Osoba Prowadząca w dniu {date}.',
+    template_assignment_support: 'Zostałeś przypisany jako Osoba Wspomagająca w dniu {date}.',
+    template_assignment_event: 'Obsługujesz wydarzenie: {remarks} w dniu {date}.',
+    template_hours_change: 'Zmiana godzin pracy w dniu {date}: Lokal jest {status}.',
+    template_schedule_published: 'Grafik Pracy na {month} został opublikowany! Wejdź w system i sprawdź go!'
   });
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
 
@@ -674,6 +682,96 @@ export default function SettingsPage() {
                     />
                     <span>Szyfrowanie SSL/TLS (Secure)</span>
                   </label>
+                </div>
+
+                {/* Sekcja szablonów powiadomień */}
+                <div className="md:col-span-2 border-t border-white/5 pt-6 mt-6 space-y-4">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider text-brand-gold flex items-center gap-2">
+                    <ClipboardList className="w-4 h-4" />
+                    <span>Szablony Wiadomości (Powiadomienia Push & Systemowe)</span>
+                  </h4>
+                  <div className="text-[10px] text-[#888] leading-relaxed bg-[#181818] p-3 rounded-lg border border-white/5 space-y-1">
+                    <p className="font-semibold text-white">Dynamiczne tagi do wykorzystania w szablonach:</p>
+                    <p>• <strong className="text-brand-gold">{`{date}`}</strong> – data dyżuru (np. 2026-07-13)</p>
+                    <p>• <strong className="text-brand-gold">{`{remarks}`}</strong> – opis wydarzenia w grafiku (np. Urodziny Piotra)</p>
+                    <p>• <strong className="text-brand-gold">{`{status}`}</strong> – status/godziny pracy lokalu (np. otwarty w godzinach 15:00 - 20:00)</p>
+                    <p>• <strong className="text-brand-gold">{`{month}`}</strong> – nazwa miesiąca i rok (np. Lipiec 2026)</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypomnienie 24h: Prowadzący</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_shift_reminder_lead || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_shift_reminder_lead: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypomnienie 24h: Wspomagający</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_shift_reminder_support || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_shift_reminder_support: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypomnienie 24h: Wydarzenie</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_shift_reminder_event || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_shift_reminder_event: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypisanie na dyżur: Prowadzący</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_assignment_lead || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_assignment_lead: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypisanie na dyżur: Wspomagający</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_assignment_support || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_assignment_support: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypisanie na dyżur: Wydarzenie</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_assignment_event || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_assignment_event: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Zmiana godzin pracy toru</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_hours_change || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_hours_change: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Publikacja nowego grafiku</label>
+                      <textarea
+                        rows={2}
+                        value={smtpSettings.template_schedule_published || ''}
+                        onChange={e => setSmtpSettings(prev => ({ ...prev, template_schedule_published: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition resize-none"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

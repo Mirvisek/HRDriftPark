@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { db } from '@/db';
-import { pushSubscriptions } from '@/db/schema';
+import { pushSubscriptions, settings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 // Konfiguracja VAPID
@@ -76,5 +76,37 @@ export async function sendPushNotification(
   } catch (e: any) {
     console.error(`[Web Push] Błąd ogólny podczas wysyłania do użytkownika ${userId}:`, e);
     return { success: false, error: e.message || 'Błąd serwera' };
+  }
+}
+
+export async function getFormattedNotification(
+  key: string,
+  replacements: Record<string, string>,
+  defaultTemplate: string
+) {
+  try {
+    const results = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, key))
+      .limit(1);
+
+    let template = defaultTemplate;
+    if (results.length > 0 && results[0].value) {
+      template = results[0].value;
+    }
+
+    let formatted = template;
+    for (const [k, v] of Object.entries(replacements)) {
+      formatted = formatted.replace(new RegExp(`{${k}}`, 'g'), v);
+    }
+    return formatted;
+  } catch (e) {
+    console.error(`Błąd wczytywania szablonu dla klucza ${key}:`, e);
+    let formatted = defaultTemplate;
+    for (const [k, v] of Object.entries(replacements)) {
+      formatted = formatted.replace(new RegExp(`{${k}}`, 'g'), v);
+    }
+    return formatted;
   }
 }

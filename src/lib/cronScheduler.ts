@@ -103,7 +103,7 @@ export function initCronJobs() {
       }
       
       const plan = tomorrowPlans[0];
-      const { sendPushNotification } = await import("@/lib/webPush");
+      const { sendPushNotification, getFormattedNotification } = await import("@/lib/webPush");
       const { sendSystemNotification } = await import("@/app/actions/userActions");
       
       // 1. Sprawdź czy jest wydarzenie specjalne i przypisane osoby
@@ -113,7 +113,11 @@ export function initCronJobs() {
           const ids = plan.eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0);
           for (const id of ids) {
             const title = "Przypomnienie o wydarzeniu jutro";
-            const msg = `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}".`;
+            const msg = await getFormattedNotification(
+              'template_shift_reminder_event',
+              { remarks: plan.eventRemarks },
+              `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}".`
+            );
             await sendSystemNotification(id, msg);
             await sendPushNotification(id, title, msg, '/schedule');
           }
@@ -121,8 +125,12 @@ export function initCronJobs() {
           return;
         } else {
           // Jeśli jest wydarzenie, ale brak przypisanych osób – powiadamiamy osoby z głównego grafiku o wydarzeniu
-          const msg = `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}" (jako osoba z grafiku).`;
           const title = "Wydarzenie na Twojej zmianie";
+          const msg = await getFormattedNotification(
+            'template_shift_reminder_event',
+            { remarks: plan.eventRemarks },
+            `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}" (jako osoba z grafiku).`
+          );
           if (plan.leadUserId) {
             await sendSystemNotification(plan.leadUserId, msg);
             await sendPushNotification(plan.leadUserId, title, msg, '/schedule');
@@ -144,14 +152,22 @@ export function initCronJobs() {
       
       if (plan.leadUserId) {
         const title = "Przypomnienie o dyżurze";
-        const msg = `Jutro masz zaplanowaną zmianę jako Osoba Prowadząca.`;
+        const msg = await getFormattedNotification(
+          'template_shift_reminder_lead',
+          {},
+          `Jutro masz zaplanowaną zmianę jako Osoba Prowadząca.`
+        );
         await sendSystemNotification(plan.leadUserId, msg);
         await sendPushNotification(plan.leadUserId, title, msg, '/schedule');
       }
       
       if (plan.supportUserId) {
         const title = "Przypomnienie o dyżurze";
-        const msg = `Jutro masz zaplanowaną zmianę jako Osoba Wspomagająca.`;
+        const msg = await getFormattedNotification(
+          'template_shift_reminder_support',
+          {},
+          `Jutro masz zaplanowaną zmianę jako Osoba Wspomagająca.`
+        );
         await sendSystemNotification(plan.supportUserId, msg);
         await sendPushNotification(plan.supportUserId, title, msg, '/schedule');
       }
