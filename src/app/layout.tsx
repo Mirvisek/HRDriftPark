@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { PushRegister } from "@/components/PushRegister";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -16,6 +17,7 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   title: "Zarządzanie Drift Park Extreme - Czas Pracy",
   description: "System telemetryczny i ewidencji czasu pracy dla zespołu Drift Park Extreme",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({
@@ -30,6 +32,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-[#121212] text-[#e0e0e0] font-sans">
         <Providers>
+          <PushRegister />
           {children}
         </Providers>
       </body>

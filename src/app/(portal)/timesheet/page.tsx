@@ -8,6 +8,7 @@ import { Plus, Trash2, FileText, FileSpreadsheet, Lock, Unlock, AlertTriangle, R
 import dynamic from 'next/dynamic';
 import { TimesheetPDF } from '@/components/TimesheetPDF';
 import { exportTimesheetToExcel } from '@/lib/excelExport';
+import { getWorkSchedule } from '@/app/actions/scheduleActions';
 
 // Dynamiczny import linku pobierania react-pdf, aby uniknąć błędów SSR (Server-Side Rendering)
 const PDFDownloadLink = dynamic(
@@ -27,6 +28,7 @@ export default function TimesheetPage() {
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [entries, setEntries] = useState<TimesheetEntry[]>([]);
+  const [monthlySchedule, setMonthlySchedule] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [simulatedLocked, setSimulatedLocked] = useState(false);
@@ -37,8 +39,8 @@ export default function TimesheetPage() {
 
   // Form state
   const [formDate, setFormDate] = useState('');
-  const [formStart, setFormStart] = useState('10:00');
-  const [formEnd, setFormEnd] = useState('18:00');
+  const [formStart, setFormStart] = useState('15:00');
+  const [formEnd, setFormEnd] = useState('20:00');
   const [formRemarks, setFormRemarks] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -51,6 +53,49 @@ export default function TimesheetPage() {
     "", "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
     "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
   ];
+
+  const getOpeningHoursForDate = (dateStr: string, currentScheduleList = monthlySchedule) => {
+    const scheduleEntry = currentScheduleList.find(s => s.date === dateStr);
+    
+    const d = new Date(dateStr);
+    const day = d.getDay(); // 0 = Niedziela, 1 = Poniedziałek, ..., 6 = Sobota
+    
+    let isClosed = false;
+    let openTime = '15:00';
+    let closeTime = '20:00';
+    
+    if (day === 1) {
+      isClosed = true;
+    } else if (day >= 2 && day <= 5) {
+      openTime = '15:00';
+      closeTime = '20:00';
+    } else {
+      openTime = '12:00';
+      closeTime = '20:00';
+    }
+    
+    if (scheduleEntry) {
+      if (scheduleEntry.isClosed) {
+        return { isClosed: true, openTime: '', closeTime: '' };
+      }
+      return {
+        isClosed: false,
+        openTime: scheduleEntry.openTime || openTime,
+        closeTime: scheduleEntry.closeTime || closeTime
+      };
+    }
+    
+    return { isClosed, openTime, closeTime };
+  };
+
+  const handleDateChange = (newDateStr: string) => {
+    setFormDate(newDateStr);
+    const hours = getOpeningHoursForDate(newDateStr);
+    if (!hours.isClosed) {
+      setFormStart(hours.openTime);
+      setFormEnd(hours.closeTime);
+    }
+  };
 
   const memoizedPDF = useMemo(() => {
     if (!currentUser) return null;
@@ -84,7 +129,11 @@ export default function TimesheetPage() {
   const fetchTimesheetsList = async () => {
     if (!currentUser) return;
     setLoading(true);
-    const res = await getTimesheets(currentUser.id, year, month);
+    
+    const [res, scheduleRes] = await Promise.all([
+      getTimesheets(currentUser.id, year, month),
+      getWorkSchedule(year, month)
+    ]);
     
     // Załaduj z localStorage jako fallback
     let localData: TimesheetEntry[] = [];
@@ -105,6 +154,18 @@ export default function TimesheetPage() {
         text: "Brak bazy danych. Pracujesz w trybie offline (dane zapisywane w przeglądarce)."
       });
     }
+
+    if (scheduleRes.success) {
+      setMonthlySchedule(scheduleRes.data || []);
+      // Aktualizuj domyślne godziny dla dzisiejszej daty na podstawie pobranego grafiku
+      const todayStr = new Date().toISOString().split('T')[0];
+      const hours = getOpeningHoursForDate(todayStr, scheduleRes.data || []);
+      if (!hours.isClosed) {
+        setFormStart(hours.openTime);
+        setFormEnd(hours.closeTime);
+      }
+    }
+
     setLoading(false);
   };
 
@@ -284,9 +345,11 @@ export default function TimesheetPage() {
               onClick={() => {
                 setEditingEntry(null);
                 const today = new Date();
-                setFormDate(today.toISOString().split('T')[0]);
-                setFormStart('10:00');
-                setFormEnd('18:00');
+                const todayStr = today.toISOString().split('T')[0];
+                const hours = getOpeningHoursForDate(todayStr);
+                setFormDate(todayStr);
+                setFormStart(hours.isClosed ? '15:00' : hours.openTime);
+                setFormEnd(hours.isClosed ? '20:00' : hours.closeTime);
                 setFormRemarks('');
                 setFormError(null);
                 setShowAddForm(true);
@@ -530,7 +593,7 @@ export default function TimesheetPage() {
                   type="date"
                   required
                   value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
+                  onChange={(e) => handleDateChange(e.target.value)}
                   className="w-full px-3 py-2 bg-[#1a1a1a] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-brand-gold"
                 />
               </div>

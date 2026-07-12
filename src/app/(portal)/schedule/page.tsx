@@ -111,18 +111,23 @@ export default function SchedulePage() {
   };
 
   // Obsługa ręcznej zmiany przez menedżera
-  const handleCellChange = async (dateStr: string, field: 'leadUserId' | 'supportUserId' | 'remarks', value: any) => {
+  const handleCellChange = async (
+    dateStr: string,
+    field: 'leadUserId' | 'supportUserId' | 'remarks' | 'eventRemarks' | 'eventUserIds' | 'openTime' | 'closeTime' | 'isClosed',
+    value: any
+  ) => {
     const updated = scheduleList.map(item => {
       if (item.date === dateStr) {
-        let nameField = '';
         if (field === 'leadUserId') {
           const emp = employees.find(e => e.id === Number(value));
           return { ...item, leadUserId: value ? Number(value) : null, leadName: emp ? emp.name : undefined };
         } else if (field === 'supportUserId') {
           const emp = employees.find(e => e.id === Number(value));
           return { ...item, supportUserId: value ? Number(value) : null, supportName: emp ? emp.name : undefined };
+        } else if (field === 'isClosed') {
+          return { ...item, isClosed: Boolean(value) };
         } else {
-          return { ...item, remarks: value };
+          return { ...item, [field]: value };
         }
       }
       return item;
@@ -142,10 +147,15 @@ export default function SchedulePage() {
         dateStr,
         targetItem.leadUserId,
         targetItem.supportUserId,
-        targetItem.remarks
+        targetItem.remarks,
+        targetItem.eventRemarks || null,
+        targetItem.eventUserIds || null,
+        targetItem.openTime || null,
+        targetItem.closeTime || null,
+        targetItem.isClosed || false
       );
       if (res.success) {
-        setStatusMsg({ type: 'success', text: `Zapisano zmiany w grafiku i powiadomiono pracowników dla dnia ${dateStr}.` });
+        setStatusMsg({ type: 'success', text: `Zapisano zmiany w grafiku dla dnia ${dateStr}.` });
       } else {
         setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu w bazie danych.' });
       }
@@ -156,6 +166,31 @@ export default function SchedulePage() {
     const days = ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'];
     const d = new Date(dateStr);
     return days[d.getDay()];
+  };
+
+  const getDefaultHours = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const day = d.getDay(); // 0 = Niedziela, 1 = Poniedziałek, ..., 6 = Sobota
+    if (day === 1) {
+      return { isClosed: true, openTime: '15:00', closeTime: '20:00', label: 'Zamknięte' };
+    } else if (day >= 2 && day <= 5) {
+      return { isClosed: false, openTime: '15:00', closeTime: '20:00', label: '15:00 - 20:00' };
+    } else {
+      return { isClosed: false, openTime: '12:00', closeTime: '20:00', label: '12:00 - 20:00' };
+    }
+  };
+
+  const getDisplayHours = (entry: ScheduleEntry) => {
+    if (entry.isClosed) {
+      return 'Zamknięte';
+    }
+    const defaults = getDefaultHours(entry.date);
+    if (entry.isClosed === undefined || entry.isClosed === null) {
+      if (defaults.isClosed) return 'Zamknięte';
+    }
+    const open = entry.openTime || defaults.openTime;
+    const close = entry.closeTime || defaults.closeTime;
+    return `${open} - ${close}`;
   };
 
   const nextMonth = () => {
@@ -230,11 +265,11 @@ export default function SchedulePage() {
           <table className="w-full border-collapse text-left text-sm text-[#e0e0e0]">
             <thead className="bg-[#0a0a0a] border-b border-white/10 text-xs font-extrabold uppercase tracking-wider text-[#a0a0a0] font-display">
               <tr>
-                <th className="py-4 px-6">Dzień</th>
-                <th className="py-4 px-6">Dzień Tygodnia</th>
-                <th className="py-4 px-6">Osoba Prowadząca</th>
-                <th className="py-4 px-6">Osoba Wspomagająca</th>
-                <th className="py-4 px-6">Uwagi</th>
+                <th className="py-4 px-4 w-[12%]">Dzień</th>
+                <th className="py-4 px-4 w-[22%]">Godziny otwarcia</th>
+                <th className="py-4 px-4 w-[25%]">Obsada główna</th>
+                <th className="py-4 px-4 w-[25%]">Wydarzenie specjalne</th>
+                <th className="py-4 px-4 w-[16%]">Uwagi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 bg-[#121212]">
@@ -243,67 +278,188 @@ export default function SchedulePage() {
                 const dayName = getDayName(entry.date);
                 const isWeekend = dayName === 'Sobota' || dayName === 'Niedziela';
 
+                const defaults = getDefaultHours(entry.date);
+                const currentOpen = entry.openTime || defaults.openTime;
+                const currentClose = entry.closeTime || defaults.closeTime;
+                const currentClosed = entry.isClosed !== undefined && entry.isClosed !== null ? entry.isClosed : defaults.isClosed;
+
+                const assignedUserIds = entry.eventUserIds ? entry.eventUserIds.split(',').map(Number) : [];
+                const toggleEventUser = (userId: number, checked: boolean) => {
+                  let newIds = [...assignedUserIds];
+                  if (checked) {
+                    if (!newIds.includes(userId)) newIds.push(userId);
+                  } else {
+                    newIds = newIds.filter(id => id !== userId);
+                  }
+                  handleCellChange(entry.date, 'eventUserIds', newIds.length > 0 ? newIds.join(',') : null);
+                };
+
                 return (
                   <tr
                     key={entry.date}
                     className={`hover:bg-[#1a1a1a] transition ${isWeekend ? 'bg-brand-gold/[0.01]' : ''}`}
                   >
-                    <td className="py-3 px-6 font-bold text-white text-md">
-                      {dayNum}
-                    </td>
-                    <td className={`py-3 px-6 text-xs font-semibold ${isWeekend ? 'text-brand-gold' : 'text-[#a0a0a0]'}`}>
-                      {dayName}
+                    {/* Dzień */}
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-white text-md">{dayNum}.</div>
+                      <div className={`text-[10px] font-semibold ${isWeekend ? 'text-brand-gold' : 'text-[#a0a0a0]'}`}>
+                        {dayName}
+                      </div>
                     </td>
 
-                    {/* Osoba Prowadząca */}
-                    <td className="py-3 px-6">
+                    {/* Godziny otwarcia */}
+                    <td className="py-3 px-4">
                       {isManagerOrOwner ? (
-                        <select
-                          value={entry.leadUserId || ''}
-                          onChange={(e) => handleCellChange(entry.date, 'leadUserId', e.target.value)}
-                          className="px-3 py-1.5 bg-[#1e1e1e] border border-white/10 rounded-md text-xs text-white focus:outline-none focus:border-brand-gold"
-                        >
-                          <option value="">-- Brak --</option>
-                          {employees.map(emp => (
-                            <option key={emp.id} value={emp.id}>{emp.name}</option>
-                          ))}
-                        </select>
+                        <div className="flex flex-col gap-1.5 min-w-[120px]">
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={currentClosed}
+                              onChange={(e) => handleCellChange(entry.date, 'isClosed', e.target.checked)}
+                              className="w-3.5 h-3.5 accent-brand-gold bg-[#1e1e1e] border-white/10 rounded"
+                            />
+                            <span className={currentClosed ? 'text-brand-red font-semibold' : ''}>Zamknięte</span>
+                          </label>
+                          {!currentClosed && (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="time"
+                                value={currentOpen}
+                                onChange={(e) => handleCellChange(entry.date, 'openTime', e.target.value)}
+                                className="px-1.5 py-1 bg-[#1e1e1e] border border-white/10 rounded text-[11px] text-white font-mono focus:outline-none focus:border-brand-gold"
+                              />
+                              <span className="text-[#555]">-</span>
+                              <input
+                                type="time"
+                                value={currentClose}
+                                onChange={(e) => handleCellChange(entry.date, 'closeTime', e.target.value)}
+                                className="px-1.5 py-1 bg-[#1e1e1e] border border-white/10 rounded text-[11px] text-white font-mono focus:outline-none focus:border-brand-gold"
+                              />
+                            </div>
+                          )}
+                        </div>
                       ) : (
-                        <span className="font-semibold text-white">
-                          {entry.leadName || <span className="text-[#555] italic">Nie obsadzono</span>}
+                        <span className={`font-semibold text-xs ${currentClosed ? 'text-brand-red italic' : 'text-white'}`}>
+                          {getDisplayHours(entry)}
                         </span>
                       )}
                     </td>
 
-                    {/* Osoba Wspomagająca */}
-                    <td className="py-3 px-6">
+                    {/* Obsada główna */}
+                    <td className="py-3 px-4">
                       {isManagerOrOwner ? (
-                        <select
-                          value={entry.supportUserId || ''}
-                          onChange={(e) => handleCellChange(entry.date, 'supportUserId', e.target.value)}
-                          className="px-3 py-1.5 bg-[#1e1e1e] border border-white/10 rounded-md text-xs text-white focus:outline-none focus:border-brand-gold"
-                        >
-                          <option value="">-- Brak --</option>
-                          {employees.map(emp => (
-                            <option key={emp.id} value={emp.id}>{emp.name}</option>
-                          ))}
-                        </select>
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] text-[#555] uppercase tracking-wider w-8 font-bold">Lead:</span>
+                            <select
+                              value={entry.leadUserId || ''}
+                              onChange={(e) => handleCellChange(entry.date, 'leadUserId', e.target.value)}
+                              className="px-2 py-1 bg-[#1e1e1e] border border-white/10 rounded text-xs text-white focus:outline-none focus:border-brand-gold"
+                            >
+                              <option value="">-- Brak --</option>
+                              {employees.map(emp => (
+                                <option key={emp.id} value={emp.id}>{emp.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] text-[#555] uppercase tracking-wider w-8 font-bold">Supp:</span>
+                            <select
+                              value={entry.supportUserId || ''}
+                              onChange={(e) => handleCellChange(entry.date, 'supportUserId', e.target.value)}
+                              className="px-2 py-1 bg-[#1e1e1e] border border-white/10 rounded text-xs text-white focus:outline-none focus:border-brand-gold"
+                            >
+                              <option value="">-- Brak --</option>
+                              {employees.map(emp => (
+                                <option key={emp.id} value={emp.id}>{emp.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
                       ) : (
-                        <span className="font-semibold text-[#a0a0a0]">
-                          {entry.supportName || <span className="text-[#555] italic">Nie obsadzono</span>}
-                        </span>
+                        <div className="flex flex-col gap-0.5 text-xs">
+                          <div>
+                            <span className="text-[#666] font-medium mr-1">Prowadzący:</span>
+                            <span className="font-semibold text-white">{entry.leadName || <span className="text-[#444] italic">Nie obsadzono</span>}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#666] font-medium mr-1">Wspomagający:</span>
+                            <span className="font-semibold text-[#a0a0a0]">{entry.supportName || <span className="text-[#444] italic">Nie obsadzono</span>}</span>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Wydarzenie specjalne */}
+                    <td className="py-3 px-4">
+                      {isManagerOrOwner ? (
+                        <div className="flex flex-col gap-1.5 min-w-[180px]">
+                          <input
+                            type="text"
+                            value={entry.eventRemarks || ''}
+                            onChange={(e) => handleCellChange(entry.date, 'eventRemarks', e.target.value)}
+                            placeholder="np. Urodziny Bartka 14:00"
+                            className="w-full px-2 py-1 bg-[#1e1e1e] border border-white/10 rounded text-xs text-white placeholder-white/20 focus:outline-none focus:border-brand-gold"
+                          />
+                          {entry.eventRemarks && (
+                            <div className="flex flex-col border border-white/5 bg-[#141414] rounded-md p-1.5 max-h-20 overflow-y-auto space-y-1">
+                              <div className="text-[9px] text-[#555] uppercase font-bold tracking-wider mb-1">Przypisz obsługę:</div>
+                              {employees.map(emp => {
+                                const isChecked = assignedUserIds.includes(emp.id);
+                                return (
+                                  <label key={emp.id} className="flex items-center gap-1.5 text-[11px] text-[#a0a0a0] hover:text-white cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={(e) => toggleEventUser(emp.id, e.target.checked)}
+                                      className="w-3 h-3 accent-brand-gold bg-[#1e1e1e] border-white/10 rounded"
+                                    />
+                                    <span>{emp.name}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        entry.eventRemarks ? (
+                          <div className="space-y-1 text-xs">
+                            <div className="font-bold text-brand-gold">{entry.eventRemarks}</div>
+                            <div className="text-[10px] text-[#666] flex items-center gap-1">
+                              <span>Obsługa:</span>
+                              {entry.eventUserIds ? (
+                                <span className="font-semibold text-white">
+                                  {entry.eventUserIds.split(',').map(id => {
+                                    const emp = employees.find(e => e.id === Number(id));
+                                    return emp ? emp.name : '';
+                                  }).filter(Boolean).join(', ')}
+                                </span>
+                              ) : (
+                                <span className="text-brand-gold/70 italic">
+                                  {entry.leadName || entry.supportName ? (
+                                    `Domyślnie (${[entry.leadName, entry.supportName].filter(Boolean).join(', ')})`
+                                  ) : (
+                                    'Brak obsady'
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[#444] italic text-xs">—</span>
+                        )
                       )}
                     </td>
 
                     {/* Uwagi */}
-                    <td className="py-3 px-6">
+                    <td className="py-3 px-4">
                       {isManagerOrOwner ? (
                         <input
                           type="text"
                           value={entry.remarks || ''}
                           onChange={(e) => handleCellChange(entry.date, 'remarks', e.target.value)}
                           placeholder="Dodaj uwagi..."
-                          className="w-full px-3 py-1.5 bg-[#1e1e1e] border border-white/10 rounded-md text-xs text-white placeholder-white/20 focus:outline-none focus:border-brand-gold"
+                          className="w-full px-2 py-1.5 bg-[#1e1e1e] border border-white/10 rounded-md text-xs text-white placeholder-white/20 focus:outline-none focus:border-brand-gold"
                         />
                       ) : (
                         <span className="text-xs text-[#888]">

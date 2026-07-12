@@ -34,6 +34,11 @@ export const workSchedule = mysqlTable('work_schedule', {
   leadUserId: int('lead_user_id'), // Osoba Prowadząca
   supportUserId: int('support_user_id'), // Osoba Wspomagająca
   remarks: text('remarks'),
+  eventRemarks: text('event_remarks'), // Opis wydarzenia (np. Urodziny)
+  eventUserIds: varchar('event_user_ids', { length: 1000 }), // Rozdzielona przecinkami lista ID pracowników
+  openTime: varchar('open_time', { length: 5 }), // Godzina otwarcia, np. "15:00"
+  closeTime: varchar('close_time', { length: 5 }), // Godzina zamknięcia, np. "20:00"
+  isClosed: boolean('is_closed').notNull().default(false), // Czy lokal zamknięty
   isDemo: boolean('is_demo').notNull().default(false),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
 });
@@ -63,5 +68,14 @@ export const settings = mysqlTable('settings', {
   key: varchar('key', { length: 255 }).primaryKey(),
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+});
+
+export const pushSubscriptions = mysqlTable('push_subscriptions', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull(),
+  endpoint: text('endpoint').notNull(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
 });
 

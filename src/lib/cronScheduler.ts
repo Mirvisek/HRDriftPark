@@ -77,5 +77,89 @@ export function initCronJobs() {
       }
     }
   });
+
+  // 3. Przypomnienie o zmianie dzień wcześniej o 20:00
+  // Uruchamia się codziennie o 20:00
+  cron.schedule('0 20 * * *', async () => {
+    console.log("[CRON] [Godzina 20:00] Rozpoczęto wysyłanie przypomnień o jutrzejszych dyżurach.");
+    try {
+      const today = new Date();
+      const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0]; // Format YYYY-MM-DD
+      
+      const { workSchedule } = await import("@/db/schema");
+      const { eq } = await import("drizzle-orm");
+      
+      // Pobierz grafik na jutro
+      const tomorrowPlans = await db
+        .select()
+        .from(workSchedule)
+        .where(eq(workSchedule.date, tomorrowStr))
+        .limit(1);
+        
+      if (tomorrowPlans.length === 0) {
+        console.log(`[CRON] Brak zaplanowanego grafiku na jutro (${tomorrowStr}).`);
+        return;
+      }
+      
+      const plan = tomorrowPlans[0];
+      const { sendPushNotification } = await import("@/lib/webPush");
+      const { sendSystemNotification } = await import("@/app/actions/userActions");
+      
+      // 1. Sprawdź czy jest wydarzenie specjalne i przypisane osoby
+      if (plan.eventRemarks) {
+        if (plan.eventUserIds) {
+          // Jeśli przypisano dedykowane osoby do wydarzenia, powiadamiamy je
+          const ids = plan.eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0);
+          for (const id of ids) {
+            const title = "Przypomnienie o wydarzeniu jutro";
+            const msg = `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}".`;
+            await sendSystemNotification(id, msg);
+            await sendPushNotification(id, title, msg, '/schedule');
+          }
+          console.log(`[CRON] Wysłano przypomnienia o wydarzeniu do dedykowanych pracowników: ${plan.eventUserIds}`);
+          return;
+        } else {
+          // Jeśli jest wydarzenie, ale brak przypisanych osób – powiadamiamy osoby z głównego grafiku o wydarzeniu
+          const msg = `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}" (jako osoba z grafiku).`;
+          const title = "Wydarzenie na Twojej zmianie";
+          if (plan.leadUserId) {
+            await sendSystemNotification(plan.leadUserId, msg);
+            await sendPushNotification(plan.leadUserId, title, msg, '/schedule');
+          }
+          if (plan.supportUserId) {
+            await sendSystemNotification(plan.supportUserId, msg);
+            await sendPushNotification(plan.supportUserId, title, msg, '/schedule');
+          }
+          console.log(`[CRON] Wysłano przypomnienia o wydarzeniu do głównej obsady z grafiku (Lead: ${plan.leadUserId}, Support: ${plan.supportUserId}).`);
+          return;
+        }
+      }
+      
+      // 2. Jeśli brak wydarzenia, powiadamiamy standardową obsadę z grafiku
+      if (plan.isClosed) {
+        console.log(`[CRON] Jutro lokal jest zamknięty. Brak przypomnień o dyżurach.`);
+        return;
+      }
+      
+      if (plan.leadUserId) {
+        const title = "Przypomnienie o dyżurze";
+        const msg = `Jutro masz zaplanowaną zmianę jako Osoba Prowadząca.`;
+        await sendSystemNotification(plan.leadUserId, msg);
+        await sendPushNotification(plan.leadUserId, title, msg, '/schedule');
+      }
+      
+      if (plan.supportUserId) {
+        const title = "Przypomnienie o dyżurze";
+        const msg = `Jutro masz zaplanowaną zmianę jako Osoba Wspomagająca.`;
+        await sendSystemNotification(plan.supportUserId, msg);
+        await sendPushNotification(plan.supportUserId, title, msg, '/schedule');
+      }
+      
+      console.log(`[CRON] Pomyślnie wysłano standardowe przypomnienia o pracy na jutro (Lead: ${plan.leadUserId}, Support: ${plan.supportUserId}).`);
+    } catch (err) {
+      console.error("[CRON] Błąd podczas wysyłania przypomnień o dyżurach:", err);
+    }
+  });
 }
 export default initCronJobs;

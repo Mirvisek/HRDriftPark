@@ -5,6 +5,7 @@ import { workSchedule, availability, users } from "@/db/schema";
 import { eq, and, like } from "drizzle-orm";
 import { auth } from "@/auth";
 import { sendSystemNotification } from "./userActions";
+import { sendPushNotification } from "@/lib/webPush";
 
 export interface ScheduleEntry {
   id?: number;
@@ -14,6 +15,11 @@ export interface ScheduleEntry {
   remarks: string | null;
   leadName?: string;
   supportName?: string;
+  eventRemarks?: string | null;
+  eventUserIds?: string | null;
+  openTime?: string | null;
+  closeTime?: string | null;
+  isClosed?: boolean;
 }
 
 export async function getWorkSchedule(year: number, month: number) {
@@ -28,6 +34,11 @@ export async function getWorkSchedule(year: number, month: number) {
         leadUserId: workSchedule.leadUserId,
         supportUserId: workSchedule.supportUserId,
         remarks: workSchedule.remarks,
+        eventRemarks: workSchedule.eventRemarks,
+        eventUserIds: workSchedule.eventUserIds,
+        openTime: workSchedule.openTime,
+        closeTime: workSchedule.closeTime,
+        isClosed: workSchedule.isClosed,
       })
       .from(workSchedule)
       .where(like(workSchedule.date, pattern));
@@ -40,6 +51,7 @@ export async function getWorkSchedule(year: number, month: number) {
       ...r,
       leadName: r.leadUserId ? userMap.get(r.leadUserId) : undefined,
       supportName: r.supportUserId ? userMap.get(r.supportUserId) : undefined,
+      isClosed: r.isClosed || false,
     }));
 
     return { success: true, data };
@@ -53,13 +65,18 @@ export async function saveWorkScheduleEntry(
   dateStr: string,
   leadUserId: number | null,
   supportUserId: number | null,
-  remarks: string | null
+  remarks: string | null,
+  eventRemarks: string | null = null,
+  eventUserIds: string | null = null,
+  openTime: string | null = null,
+  closeTime: string | null = null,
+  isClosed: boolean = false
 ) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
   const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager') {
+  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
     return { success: false, error: "Brak uprawnień do edycji grafiku." };
   }
 
@@ -74,7 +91,17 @@ export async function saveWorkScheduleEntry(
     if (existing.length > 0) {
       await db
         .update(workSchedule)
-        .set({ leadUserId, supportUserId, remarks, updatedAt: new Date() })
+        .set({ 
+          leadUserId, 
+          supportUserId, 
+          remarks, 
+          eventRemarks,
+          eventUserIds,
+          openTime,
+          closeTime,
+          isClosed,
+          updatedAt: new Date() 
+        })
         .where(eq(workSchedule.id, existing[0].id));
     } else {
       await db.insert(workSchedule).values({
@@ -82,16 +109,50 @@ export async function saveWorkScheduleEntry(
         leadUserId,
         supportUserId,
         remarks,
+        eventRemarks,
+        eventUserIds,
+        openTime,
+        closeTime,
+        isClosed,
         isDemo: false
       });
     }
 
-    // Wyślij powiadomienia do przypisanych pracowników
+    // Wyślij powiadomienia do przypisanych pracowników (Prowadzący i Wspomagający)
     if (leadUserId) {
       await sendSystemNotification(leadUserId, `Zostałeś przypisany jako Osoba Prowadząca w dniu ${dateStr}.`);
+      await sendPushNotification(leadUserId, `Nowy dyżur: Prowadzący`, `Zostałeś przypisany jako Osoba Prowadząca w dniu ${dateStr}.`, `/schedule`);
     }
     if (supportUserId) {
       await sendSystemNotification(supportUserId, `Zostałeś przypisany jako Osoba Wspomagająca w dniu ${dateStr}.`);
+      await sendPushNotification(supportUserId, `Nowy dyżur: Wspomagający`, `Zostałeś przypisany jako Osoba Wspomagająca w dniu ${dateStr}.`, `/schedule`);
+    }
+
+    // Powiadomienia dla osób przypisanych bezpośrednio do wydarzenia
+    if (eventUserIds && eventRemarks) {
+      const ids = eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0);
+      for (const id of ids) {
+        await sendSystemNotification(id, `Zostałeś przypisany do obsługi wydarzenia: ${eventRemarks} w dniu ${dateStr}.`);
+        await sendPushNotification(id, `Przypisanie do wydarzenia`, `Obsługujesz wydarzenie: ${eventRemarks} w dniu ${dateStr}.`, `/schedule`);
+      }
+    }
+
+    // Jeśli zmieniono godziny otwarcia lub zamknięto lokal, powiadom główną obsadę
+    if (isClosed || openTime || closeTime) {
+      const statusText = isClosed ? "ZAMKNIĘTY" : `otwarty w godzinach ${openTime || '15:00'} - ${closeTime || '20:00'}`;
+      const msg = `Zmiana godzin pracy w dniu ${dateStr}: Lokal jest ${statusText}.`;
+      
+      const recipients = new Set<number>();
+      if (leadUserId) recipients.add(leadUserId);
+      if (supportUserId) recipients.add(supportUserId);
+      if (eventUserIds) {
+        eventUserIds.split(',').map(Number).filter(id => !isNaN(id) && id > 0).forEach(id => recipients.add(id));
+      }
+
+      for (const id of recipients) {
+        await sendSystemNotification(id, msg);
+        await sendPushNotification(id, `Aktualizacja godzin pracy`, msg, `/schedule`);
+      }
     }
 
     return { success: true };
