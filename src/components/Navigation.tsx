@@ -113,7 +113,7 @@ export function Navigation({ user }: NavigationProps) {
       {/* ========================================================================= */}
       {/* DESKTOP SIDEBAR                                                           */}
       {/* ========================================================================= */}
-      <aside className="hidden md:flex flex-col w-64 bg-[#0a0a0a] border-r border-white/5 p-6 justify-between shrink-0 h-screen sticky top-0">
+      <aside className="hidden md:flex flex-col w-64 bg-[#0a0a0a] border-r border-white/5 p-6 justify-between shrink-0 h-screen sticky top-0 z-20">
         <div className="space-y-8">
           {/* Logo */}
           <div className="flex items-center gap-3">
