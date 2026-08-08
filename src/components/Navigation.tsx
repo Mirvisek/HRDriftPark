@@ -17,10 +17,12 @@ import {
   Settings,
   ClipboardList,
   DollarSign,
-  Bell
+  Bell,
+  Package
 } from "lucide-react";
 import { SignOutButton } from "@/components/SignOutButton";
 import { getNotifications, markNotificationsAsReadAction } from "@/app/actions/userActions";
+import { hasPermission } from "@/lib/permissions";
 
 interface NavigationProps {
   user: {
@@ -95,6 +97,13 @@ export function Navigation({ user }: NavigationProps) {
       label: "Zadania",
       icon: ClipboardList,
     },
+    ...(hasPermission(user, 'inventory:view') ? [
+      {
+        href: "/magazyn",
+        label: "Magazyn",
+        icon: Package,
+      }
+    ] : [])
   ];
 
   const handleQuickLogout = () => {

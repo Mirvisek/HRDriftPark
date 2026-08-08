@@ -53,6 +53,14 @@ export async function getTasksForDateAction(dateStr: string) {
       await db.insert(shiftTasks).values(task);
     }
 
+    // Automatycznie losuj wybiórczą inwentaryzację (Spot Check) na ten dzień
+    try {
+      const { triggerDailySpotCheckAction } = await import("./inventoryActions");
+      await triggerDailySpotCheckAction(dateStr);
+    } catch (spotErr) {
+      console.error("Błąd podczas automatycznego losowania Spot Check:", spotErr);
+    }
+
     // 4. Pobierz ponownie nowo utworzone zadania
     const initializedTasks = await db
       .select()

@@ -125,3 +125,66 @@ export const salaryHistory = mysqlTable('salary_history', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const warehouseCategories = mysqlTable('warehouse_categories', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const warehouseProducts = mysqlTable('warehouse_products', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull(),
+  categoryId: int('category_id').notNull(),
+  supplier: varchar('supplier', { length: 255 }),
+  unit: varchar('unit', { length: 50 }).notNull().default('szt.'),
+  minStock: double('min_stock').notNull().default(0),
+  maxStock: double('max_stock').notNull().default(0),
+  sku: varchar('sku', { length: 100 }),
+  location: varchar('location', { length: 255 }),
+  hasExpiry: boolean('has_expiry').notNull().default(false),
+  autoSpotCheck: boolean('auto_spot_check').notNull().default(false),
+  status: mysqlEnum('status', ['active', 'inactive']).notNull().default('active'),
+  remarks: text('remarks'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const warehouseBatches = mysqlTable('warehouse_batches', {
+  id: int('id').primaryKey().autoincrement(),
+  productId: int('product_id').notNull(),
+  batchNumber: varchar('batch_number', { length: 100 }),
+  expiryDate: date('expiry_date', { mode: 'string' }),
+  quantity: double('quantity').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const warehouseHistory = mysqlTable('warehouse_history', {
+  id: int('id').primaryKey().autoincrement(),
+  productId: int('product_id').notNull(),
+  batchId: int('batch_id'),
+  userId: int('user_id').notNull(),
+  type: mysqlEnum('type', ['delivery', 'issue', 'correction', 'inventory']).notNull(),
+  quantity: double('quantity').notNull(),
+  source: varchar('source', { length: 255 }), // dostawca, lokal docelowy, powód korekty
+  remarks: text('remarks'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const warehouseInventories = mysqlTable('warehouse_inventories', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull(),
+  categoryId: int('category_id'), // NULL = cały magazyn
+  type: mysqlEnum('type', ['full', 'spot']).notNull().default('full'),
+  status: mysqlEnum('status', ['draft', 'submitted']).notNull().default('draft'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const warehouseInventoryItems = mysqlTable('warehouse_inventory_items', {
+  id: int('id').primaryKey().autoincrement(),
+  inventoryId: int('inventory_id').notNull(),
+  productId: int('product_id').notNull(),
+  systemStock: double('system_stock').notNull(),
+  actualStock: double('actual_stock'),
+  difference: double('difference'),
+  remarks: text('remarks'),
+});
+

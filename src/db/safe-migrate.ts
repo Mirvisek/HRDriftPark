@@ -119,6 +119,118 @@ async function main() {
     console.error("Błąd konwersji 'salary_history.hourly_rate':", e.message);
   }
 
+  // 4.6. Tworzenie tabel magazynowych
+  try {
+    console.log("Tworzenie tabeli 'warehouse_categories'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`warehouse_categories\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(255) NOT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'warehouse_categories' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'warehouse_categories':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'warehouse_products'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`warehouse_products\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(255) NOT NULL,
+        \`category_id\` INT NOT NULL,
+        \`supplier\` VARCHAR(255) NULL,
+        \`unit\` VARCHAR(50) NOT NULL DEFAULT 'szt.',
+        \`min_stock\` DOUBLE NOT NULL DEFAULT 0,
+        \`max_stock\` DOUBLE NOT NULL DEFAULT 0,
+        \`sku\` VARCHAR(100) NULL,
+        \`location\` VARCHAR(255) NULL,
+        \`has_expiry\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`auto_spot_check\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`status\` VARCHAR(50) NOT NULL DEFAULT 'active',
+        \`remarks\` TEXT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'warehouse_products' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'warehouse_products':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'warehouse_batches'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`warehouse_batches\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`product_id\` INT NOT NULL,
+        \`batch_number\` VARCHAR(100) NULL,
+        \`expiry_date\` DATE NULL,
+        \`quantity\` DOUBLE NOT NULL DEFAULT 0,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'warehouse_batches' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'warehouse_batches':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'warehouse_history'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`warehouse_history\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`product_id\` INT NOT NULL,
+        \`batch_id\` INT NULL,
+        \`user_id\` INT NOT NULL,
+        \`type\` VARCHAR(50) NOT NULL,
+        \`quantity\` DOUBLE NOT NULL,
+        \`source\` VARCHAR(255) NULL,
+        \`remarks\` TEXT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'warehouse_history' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'warehouse_history':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'warehouse_inventories'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`warehouse_inventories\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`user_id\` INT NOT NULL,
+        \`category_id\` INT NULL,
+        \`type\` VARCHAR(50) NOT NULL DEFAULT 'full',
+        \`status\` VARCHAR(50) NOT NULL DEFAULT 'draft',
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'warehouse_inventories' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'warehouse_inventories':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'warehouse_inventory_items'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`warehouse_inventory_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`inventory_id\` INT NOT NULL,
+        \`product_id\` INT NOT NULL,
+        \`system_stock\` DOUBLE NOT NULL,
+        \`actual_stock\` DOUBLE NULL,
+        \`difference\` DOUBLE NULL,
+        \`remarks\` TEXT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'warehouse_inventory_items' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'warehouse_inventory_items':", e.message);
+  }
+
   // 5. Inicjalizacja stawek początkowych oraz uprawnień dla istniejących użytkowników
   try {
     console.log("Generowanie stawek początkowych w salary_history oraz domyślnych uprawnień dla obecnych użytkowników...");
@@ -145,13 +257,13 @@ async function main() {
       if (!u.permissions) {
         let defaultPerms = "";
         if (u.role === 'owner') {
-          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send";
+          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
         } else if (u.role === 'manager') {
-          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send";
+          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory";
         } else if (u.role === 'technik') {
-          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send";
+          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
         } else if (u.role === 'employee') {
-          defaultPerms = "schedule:view,timesheet:view_own,tasks:view";
+          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue";
         }
 
         console.log(`-> Nadawanie domyślnych uprawnień dla ${u.displayName} (${u.role}): ${defaultPerms}`);

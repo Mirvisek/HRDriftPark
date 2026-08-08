@@ -13,6 +13,11 @@ export const PERMISSIONS = {
   SETTINGS_EDIT: 'settings:edit',
   USERS_MANAGE: 'users:manage',
   PUSH_SEND: 'push:send',
+  INVENTORY_VIEW: 'inventory:view',
+  INVENTORY_DELIVER: 'inventory:deliver',
+  INVENTORY_ISSUE: 'inventory:issue',
+  INVENTORY_INVENTORY: 'inventory:inventory',
+  INVENTORY_MANAGE: 'inventory:manage',
 } as const;
 
 export type PermissionKey = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -29,6 +34,11 @@ export const PERMISSION_LABELS: Record<PermissionKey, string> = {
   'settings:edit': 'Dostęp do ustawień SMTP i szablonów powiadomień',
   'users:manage': 'Zarządzanie profilami pracowników i reset haseł',
   'push:send': 'Wysyłanie ręcznych powiadomień push',
+  'inventory:view': 'Podgląd stanu magazynu, historii i dashboardu',
+  'inventory:deliver': 'Przyjmowanie i rejestrowanie dostaw',
+  'inventory:issue': 'Wydawanie produktów na lokale (tory/kluby)',
+  'inventory:inventory': 'Przeprowadzanie inwentaryzacji (pełnych i wybiórczych)',
+  'inventory:manage': 'Zarządzanie katalogiem produktów, kategoriami i korektami',
 };
 
 /**

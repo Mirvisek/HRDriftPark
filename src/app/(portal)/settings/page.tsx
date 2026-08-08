@@ -53,19 +53,24 @@ const AVAILABLE_PERMISSIONS = [
   { key: 'settings:edit', label: 'Dostęp do ustawień i SMTP' },
   { key: 'users:manage', label: 'Zarządzanie pracownikami i reset haseł' },
   { key: 'push:send', label: 'Wysyłanie ręcznych powiadomień push' },
+  { key: 'inventory:view', label: 'Magazyn: Podgląd stanu i historii' },
+  { key: 'inventory:deliver', label: 'Magazyn: Przyjmowanie dostaw' },
+  { key: 'inventory:issue', label: 'Magazyn: Wydawanie na lokale' },
+  { key: 'inventory:inventory', label: 'Magazyn: Przeprowadzanie inwentaryzacji' },
+  { key: 'inventory:manage', label: 'Magazyn: Zarządzanie produktami/kategoriami' },
 ];
 
 const getDefaultPermissionsForRole = (role: string): string => {
   if (role === 'owner') {
-    return "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send";
+    return "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
   }
   if (role === 'manager') {
-    return "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send";
+    return "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory";
   }
   if (role === 'technik') {
-    return "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send";
+    return "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
   }
-  return "schedule:view,timesheet:view_own,tasks:view";
+  return "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue";
 };
 
 export default function SettingsPage() {
