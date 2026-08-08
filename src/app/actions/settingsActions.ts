@@ -546,3 +546,48 @@ export async function deleteVenueAction(id: number) {
     return { success: false, error: "Błąd bazy danych podczas usuwania lokalu." };
   }
 }
+
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Zapisuje logo firmy na dysku serwera i aktualizuje klucz site_logo w ustawieniach.
+ */
+export async function uploadLogoAction(formData: FormData) {
+  await checkAuth('settings:edit');
+
+  try {
+    const file = formData.get('file') as File;
+    if (!file || file.size === 0) {
+      return { success: false, error: "Nie przesłano pliku." };
+    }
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+    if (!allowedTypes.includes(file.type)) {
+      return { success: false, error: "Dozwolone formaty: PNG, JPG, WebP, SVG." };
+    }
+
+    const ext = path.extname(file.name) || '.png';
+    const fileName = `logo${ext}`;
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'logo');
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    await fs.promises.writeFile(path.join(uploadDir, fileName), buffer);
+
+    const logoUrl = `/uploads/logo/${fileName}`;
+
+    const existing = await db.select().from(settings).where(eq(settings.key, 'site_logo')).limit(1);
+    if (existing.length > 0) {
+      await db.update(settings).set({ value: logoUrl }).where(eq(settings.key, 'site_logo'));
+    } else {
+      await db.insert(settings).values({ key: 'site_logo', value: logoUrl });
+    }
+
+    return { success: true, logoUrl };
+  } catch (e: any) {
+    console.error("Błąd podczas uploadu logo:", e);
+    return { success: false, error: "Błąd zapisu pliku logo." };
+  }
+}
