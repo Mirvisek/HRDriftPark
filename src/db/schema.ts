@@ -1,5 +1,11 @@
 import { mysqlTable, int, varchar, text, boolean, timestamp, date, mysqlEnum, double } from 'drizzle-orm/mysql-core';
 
+export const venues = mysqlTable('venues', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const users = mysqlTable('users', {
   id: int('id').primaryKey().autoincrement(),
   firstName: varchar('first_name', { length: 255 }).notNull(),
@@ -16,6 +22,7 @@ export const users = mysqlTable('users', {
   hourlyRate: double('hourly_rate').notNull().default(0), // Stawka godzinowa w PLN (Double dla dziesiętnych)
   permissions: text('permissions').notNull().default(''), // Uprawnienia rozdzielane przecinkami
   isDemo: boolean('is_demo').notNull().default(false),
+  venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -42,6 +49,7 @@ export const workSchedule = mysqlTable('work_schedule', {
   closeTime: varchar('close_time', { length: 5 }), // Godzina zamknięcia, np. "20:00"
   isClosed: boolean('is_closed').notNull().default(false), // Czy lokal zamknięty
   isDemo: boolean('is_demo').notNull().default(false),
+  venueId: int('venue_id'),
   version: int('version').notNull().default(1), // Optymistyczne blokowanie
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
 });
@@ -88,6 +96,7 @@ export const taskTemplates = mysqlTable('task_templates', {
   title: varchar('title', { length: 255 }).notNull(),
   dayOfWeek: int('day_of_week').notNull(), // 0 = Niedziela, 1 = Poniedziałek, ..., 6 = Sobota
   isDemo: boolean('is_demo').notNull().default(false),
+  venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -102,6 +111,7 @@ export const shiftTasks = mysqlTable('shift_tasks', {
   completedByName: varchar('completed_by_name', { length: 255 }),
   completedAt: timestamp('completed_at'),
   isDemo: boolean('is_demo').notNull().default(false),
+  venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -154,6 +164,7 @@ export const warehouseBatches = mysqlTable('warehouse_batches', {
   batchNumber: varchar('batch_number', { length: 100 }),
   expiryDate: date('expiry_date', { mode: 'string' }),
   quantity: double('quantity').notNull().default(0),
+  venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -166,6 +177,8 @@ export const warehouseHistory = mysqlTable('warehouse_history', {
   quantity: double('quantity').notNull(),
   source: varchar('source', { length: 255 }), // dostawca, lokal docelowy, powód korekty
   remarks: text('remarks'),
+  attachmentUrl: text('attachment_url'),
+  venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -175,6 +188,7 @@ export const warehouseInventories = mysqlTable('warehouse_inventories', {
   categoryId: int('category_id'), // NULL = cały magazyn
   type: mysqlEnum('type', ['full', 'spot']).notNull().default('full'),
   status: mysqlEnum('status', ['draft', 'submitted']).notNull().default('draft'),
+  venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

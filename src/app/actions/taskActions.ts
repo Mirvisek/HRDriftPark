@@ -12,51 +12,68 @@ import { auth } from "@/auth";
 export async function getTasksForDateAction(dateStr: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  const userVenueId = (session.user as any).venueId || 1;
 
   try {
-    // 1. Sprawdź czy są już zadania w bazie dla tej daty
+    // 1. Sprawdź czy są już zadania w bazie dla tej daty i tego lokalu
     const existingTasks = await db
       .select()
       .from(shiftTasks)
-      .where(eq(shiftTasks.date, dateStr))
+      .where(and(
+        eq(shiftTasks.date, dateStr),
+        eq(shiftTasks.venueId, userVenueId)
+      ))
       .orderBy(shiftTasks.id);
 
     if (existingTasks.length > 0) {
       return { success: true, data: existingTasks };
     }
 
-    // 2. Jeśli nie ma, pobierz szablony dla odpowiedniego dnia tygodnia
+    // 2. Jeśli nie ma, pobierz szablony dla odpowiedniego dnia tygodnia i lokalu
     const d = new Date(dateStr);
     const dayOfWeek = d.getDay(); // 0 = Niedziela, 1 = Poniedziałek, ..., 6 = Sobota
 
     const templates = await db
       .select()
       .from(taskTemplates)
-      .where(eq(taskTemplates.dayOfWeek, dayOfWeek))
+      .where(and(
+        eq(taskTemplates.dayOfWeek, dayOfWeek),
+        eq(taskTemplates.venueId, userVenueId)
+      ))
       .orderBy(taskTemplates.id);
 
-    if (templates.length === 0) {
-      return { success: true, data: [] }; // Brak szablonów na ten dzień
-    }
-
-    // 3. Skopiuj szablony do tabeli shift_tasks dla tej daty
+    // 3. Skopiuj szablony do tabeli shift_tasks dla tej daty i lokalu
     const newTasks = templates.map(t => ({
       date: dateStr,
       title: t.title,
       type: 'recurring' as 'recurring' | 'additional',
       priority: 'medium' as 'low' | 'medium' | 'high',
       isCompleted: false,
+      venueId: userVenueId,
       isDemo: false
     }));
+
+    // Jeżeli to NIEDZIELA (dayOfWeek === 0), dodaj cotygodniową pełną inwentaryzację lokalu
+    if (dayOfWeek === 0) {
+      newTasks.push({
+        date: dateStr,
+        title: `[MAGAZYN] Cotygodniowa pełna inwentaryzacja lokalu`,
+        type: 'recurring' as 'recurring' | 'additional',
+        priority: 'high' as 'low' | 'medium' | 'high',
+        isCompleted: false,
+        venueId: userVenueId,
+        isDemo: false
+      });
+    }
 
     for (const task of newTasks) {
       await db.insert(shiftTasks).values(task);
     }
 
-    // Automatycznie losuj wybiórczą inwentaryzację (Spot Check) na ten dzień
+    // Automatycznie losuj wybiórczą inwentaryzację (Spot Check) na ten dzień w tym lokalu
     try {
       const { triggerDailySpotCheckAction } = await import("./inventoryActions");
-      await triggerDailySpotCheckAction(dateStr);
+      await triggerDailySpotCheckAction(dateStr, userVenueId);
     } catch (spotErr) {
       console.error("Błąd podczas automatycznego losowania Spot Check:", spotErr);
     }
@@ -65,7 +82,10 @@ export async function getTasksForDateAction(dateStr: string) {
     const initializedTasks = await db
       .select()
       .from(shiftTasks)
-      .where(eq(shiftTasks.date, dateStr))
+      .where(and(
+        eq(shiftTasks.date, dateStr),
+        eq(shiftTasks.venueId, userVenueId)
+      ))
       .orderBy(shiftTasks.id);
 
     return { success: true, data: initializedTasks };
@@ -85,6 +105,7 @@ export async function addAdditionalTaskAction(
 ) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  const userVenueId = (session.user as any).venueId || 1;
 
   if (!title.trim()) {
     return { success: false, error: "Tytuł zadania nie może być pusty." };
@@ -97,10 +118,11 @@ export async function addAdditionalTaskAction(
       type: 'additional',
       priority,
       isCompleted: false,
+      venueId: userVenueId,
       isDemo: false
     });
 
-    console.log(`[Tasks] Dodano zadanie dodatkowe na dzień ${dateStr}: ${title}`);
+    console.log(`[Tasks] Dodano zadanie dodatkowe na dzień ${dateStr} w lokalu ${userVenueId}: ${title}`);
     return { success: true };
   } catch (e: any) {
     console.error("[Task Error] Dodawanie zadania:", e);
@@ -180,11 +202,13 @@ export async function deleteAdditionalTaskAction(taskId: number) {
 export async function getTaskTemplatesAction() {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
+  const userVenueId = (session.user as any).venueId || 1;
 
   try {
     const templates = await db
       .select()
       .from(taskTemplates)
+      .where(eq(taskTemplates.venueId, userVenueId))
       .orderBy(asc(taskTemplates.dayOfWeek), asc(taskTemplates.title));
 
     return { success: true, data: templates };
@@ -200,6 +224,7 @@ export async function getTaskTemplatesAction() {
 export async function saveTaskTemplateAction(title: string, dayOfWeek: number) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  const userVenueId = (session.user as any).venueId || 1;
 
   const role = (session.user as any).role;
   if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
@@ -214,10 +239,11 @@ export async function saveTaskTemplateAction(title: string, dayOfWeek: number) {
     await db.insert(taskTemplates).values({
       title: title.trim(),
       dayOfWeek,
+      venueId: userVenueId,
       isDemo: false
     });
 
-    console.log(`[Tasks] Zapisano szablon zadania stałego na dzień tygodnia ${dayOfWeek}: ${title}`);
+    console.log(`[Tasks] Zapisano szablon zadania w lokalu ${userVenueId} na dzień tygodnia ${dayOfWeek}: ${title}`);
     return { success: true };
   } catch (e: any) {
     console.error("[Task Error] Zapis szablonu:", e);

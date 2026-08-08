@@ -9,11 +9,14 @@ import {
   warehouseInventories, 
   warehouseInventoryItems,
   users,
-  shiftTasks
+  shiftTasks,
+  venues
 } from "@/db/schema";
-import { eq, and, asc, desc, sql, isNull } from "drizzle-orm";
+import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
+import fs from 'fs';
+import path from 'path';
 
 // Pomocnik weryfikacji uprawnień na serwerze
 async function checkAuth(permission?: string) {
@@ -23,6 +26,23 @@ async function checkAuth(permission?: string) {
     throw new Error(`Brak wymaganych uprawnień: ${permission}`);
   }
   return session;
+}
+
+// Pomocnik zapisu przesłanego pliku na serwerze
+async function saveUploadedFile(file: File): Promise<string> {
+  const bytes = await file.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  
+  const ext = path.extname(file.name) || '.jpg';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}${ext}`;
+  const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'receipts');
+  
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  
+  const filePath = path.join(uploadDir, fileName);
+  await fs.promises.writeFile(filePath, buffer);
+  
+  return `/uploads/receipts/${fileName}`;
 }
 
 // -------------------------------------------------------------
@@ -59,7 +79,8 @@ export async function saveCategoryAction(id: number | null, name: string) {
 // -------------------------------------------------------------
 
 export async function getProductsAction() {
-  await checkAuth('inventory:view');
+  const session = await checkAuth('inventory:view');
+  const userVenueId = (session.user as any).venueId || 1;
   try {
     const products = await db.select({
       id: warehouseProducts.id,
@@ -77,7 +98,7 @@ export async function getProductsAction() {
       status: warehouseProducts.status,
       remarks: warehouseProducts.remarks,
       createdAt: warehouseProducts.createdAt,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId}), 0)`
     })
     .from(warehouseProducts)
     .leftJoin(warehouseCategories, eq(warehouseProducts.categoryId, warehouseCategories.id))
@@ -90,7 +111,8 @@ export async function getProductsAction() {
 }
 
 export async function addProductAction(productData: any) {
-  await checkAuth('inventory:manage');
+  const session = await checkAuth('inventory:manage');
+  const userVenueId = (session.user as any).venueId || 1;
   try {
     if (!productData.name?.trim()) return { success: false, error: "Nazwa produktu jest wymagana." };
     if (!productData.categoryId) return { success: false, error: "Kategoria jest wymagana." };
@@ -112,13 +134,14 @@ export async function addProductAction(productData: any) {
     
     const productId = (insertResult as any).insertId || 0;
     
-    // Automatycznie wstawiamy domyślną partię dla produktów bez terminu ważności
+    // Automatycznie wstawiamy domyślną partię dla produktów bez terminu ważności dla obecnego lokalu
     if (!productData.hasExpiry) {
       await db.insert(warehouseBatches).values({
         productId,
         batchNumber: 'DEFAULT',
         expiryDate: null,
-        quantity: 0
+        quantity: 0,
+        venueId: userVenueId
       });
     }
     
@@ -129,7 +152,8 @@ export async function addProductAction(productData: any) {
 }
 
 export async function updateProductAction(id: number, productData: any) {
-  await checkAuth('inventory:manage');
+  const session = await checkAuth('inventory:manage');
+  const userVenueId = (session.user as any).venueId || 1;
   try {
     if (!productData.name?.trim()) return { success: false, error: "Nazwa produktu jest wymagana." };
     if (!productData.categoryId) return { success: false, error: "Kategoria jest wymagana." };
@@ -156,28 +180,27 @@ export async function updateProductAction(id: number, productData: any) {
     })
     .where(eq(warehouseProducts.id, id));
     
-    // Konwersja partii przy zmianie trybu terminu ważności
+    // Konwersja partii dla tego lokalu przy zmianie trybu terminu ważności
     if (wasExpiry && !isExpiry) {
-      // Przejście z ważności na brak terminu ważności: łączymy partie w jedną DEFAULT
-      const hasDefault = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'))).limit(1);
+      const hasDefault = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'), eq(warehouseBatches.venueId, userVenueId))).limit(1);
       if (hasDefault.length === 0) {
-        const activeBatches = await db.select().from(warehouseBatches).where(eq(warehouseBatches.productId, id));
+        const activeBatches = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.venueId, userVenueId)));
         const sumQty = activeBatches.reduce((acc, b) => acc + b.quantity, 0);
         
         await db.insert(warehouseBatches).values({
           productId: id,
           batchNumber: 'DEFAULT',
           expiryDate: null,
-          quantity: sumQty
+          quantity: sumQty,
+          venueId: userVenueId
         });
         
-        await db.delete(warehouseBatches).where(and(eq(warehouseBatches.productId, id), sql`batch_number != 'DEFAULT'`));
+        await db.delete(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.venueId, userVenueId), sql`batch_number != 'DEFAULT'`));
       }
     } else if (!wasExpiry && isExpiry) {
-      // Przejście z braku ważności na z ważnością: zmieniamy nazwę DEFAULT na PARTIA-A
       await db.update(warehouseBatches)
         .set({ batchNumber: 'PARTIA-A' })
-        .where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT')));
+        .where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'), eq(warehouseBatches.venueId, userVenueId)));
     }
     
     return { success: true };
@@ -189,7 +212,6 @@ export async function updateProductAction(id: number, productData: any) {
 export async function deleteProductAction(id: number) {
   await checkAuth('inventory:manage');
   try {
-    // Dezaktywacja zamiast twardego usuwania ze względu na spójność historii operacji
     await db.update(warehouseProducts)
       .set({ status: 'inactive' })
       .where(eq(warehouseProducts.id, id));
@@ -200,93 +222,114 @@ export async function deleteProductAction(id: number) {
 }
 
 // -------------------------------------------------------------
-// OPERACJE: DOSTAWY I WYDANIA
+// OPERACJE: ZBIORCZE DOSTAWY ZE ZDJĘCIEM I WYDANIA
 // -------------------------------------------------------------
 
-export async function deliverProductAction(data: {
-  productId: number;
-  quantity: number;
-  supplier?: string;
-  remarks?: string;
-  batchNumber?: string;
-  expiryDate?: string;
-  documentNumber?: string;
-}) {
+export async function deliverBulkProductsAction(formData: FormData) {
   const session = await checkAuth('inventory:deliver');
   const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
   
   try {
-    const qty = Number(data.quantity);
-    if (isNaN(qty) || qty <= 0) return { success: false, error: "Ilość musi być większa od zera." };
+    const supplier = formData.get('supplier') as string || 'Dostawca Zewnętrzny';
+    const documentNumber = formData.get('documentNumber') as string || '';
+    const remarks = formData.get('remarks') as string || '';
+    const itemsJson = formData.get('items') as string;
+    const file = formData.get('file') as File;
     
-    const product = await db.select().from(warehouseProducts).where(eq(warehouseProducts.id, data.productId)).limit(1);
-    if (product.length === 0) return { success: false, error: "Produkt nie istnieje." };
+    if (!itemsJson) return { success: false, error: "Brak pozycji dostawy." };
+    const items = JSON.parse(itemsJson) as Array<{ productId: number; quantity: number; batchNumber?: string; expiryDate?: string; }>;
+    if (items.length === 0) return { success: false, error: "Dostawa musi zawierać co najmniej jedną pozycję." };
     
-    let batchId: number | null = null;
-    
-    if (product[0].hasExpiry) {
-      const bNum = data.batchNumber?.trim() || 'PARTIA-' + new Date().toISOString().split('T')[0];
-      const expDate = data.expiryDate || null;
-      
-      const existingBatch = await db.select()
-        .from(warehouseBatches)
-        .where(and(
-          eq(warehouseBatches.productId, data.productId),
-          eq(warehouseBatches.batchNumber, bNum)
-        ))
-        .limit(1);
-        
-      if (existingBatch.length > 0) {
-        batchId = existingBatch[0].id;
-        await db.update(warehouseBatches)
-          .set({ quantity: existingBatch[0].quantity + qty })
-          .where(eq(warehouseBatches.id, batchId));
-      } else {
-        const [insertBatch] = await db.insert(warehouseBatches).values({
-          productId: data.productId,
-          batchNumber: bNum,
-          expiryDate: expDate,
-          quantity: qty
-        });
-        batchId = (insertBatch as any).insertId || null;
-      }
-    } else {
-      const existingBatch = await db.select()
-        .from(warehouseBatches)
-        .where(and(
-          eq(warehouseBatches.productId, data.productId),
-          eq(warehouseBatches.batchNumber, 'DEFAULT')
-        ))
-        .limit(1);
-        
-      if (existingBatch.length > 0) {
-        batchId = existingBatch[0].id;
-        await db.update(warehouseBatches)
-          .set({ quantity: existingBatch[0].quantity + qty })
-          .where(eq(warehouseBatches.id, batchId));
-      } else {
-        const [insertBatch] = await db.insert(warehouseBatches).values({
-          productId: data.productId,
-          batchNumber: 'DEFAULT',
-          expiryDate: null,
-          quantity: qty
-        });
-        batchId = (insertBatch as any).insertId || null;
-      }
+    if (!file || file.size === 0) {
+      // Miękka obsługa — zezwól na dostawę bez zdjęcia, attachment_url pozostanie null
+      console.warn('[Delivery] Zarejestrowano dostawę bez zdjęcia faktury/paragonu.');
     }
     
-    await db.insert(warehouseHistory).values({
-      productId: data.productId,
-      batchId,
-      userId,
-      type: 'delivery',
-      quantity: qty,
-      source: data.supplier?.trim() || 'Dostawca Zewnętrzny',
-      remarks: data.remarks?.trim() || (data.documentNumber ? `Faktura/Dokument: ${data.documentNumber}` : null)
-    });
+    // Zapisz plik na dysku tylko jeśli jest realny (rozmiar > 0)
+    const attachmentUrl = (file && file.size > 0) ? await saveUploadedFile(file) : null;
+    
+    for (const item of items) {
+      const qty = Number(item.quantity);
+      if (isNaN(qty) || qty <= 0) continue;
+      
+      const product = await db.select().from(warehouseProducts).where(eq(warehouseProducts.id, item.productId)).limit(1);
+      if (product.length === 0) continue;
+      
+      let batchId: number | null = null;
+      
+      if (product[0].hasExpiry) {
+        const bNum = item.batchNumber?.trim() || 'PARTIA-' + new Date().toISOString().split('T')[0];
+        const expDate = item.expiryDate || null;
+        
+        const existingBatch = await db.select()
+          .from(warehouseBatches)
+          .where(and(
+            eq(warehouseBatches.productId, item.productId),
+            eq(warehouseBatches.batchNumber, bNum),
+            eq(warehouseBatches.venueId, userVenueId)
+          ))
+          .limit(1);
+          
+        if (existingBatch.length > 0) {
+          batchId = existingBatch[0].id;
+          await db.update(warehouseBatches)
+            .set({ quantity: existingBatch[0].quantity + qty })
+            .where(eq(warehouseBatches.id, batchId));
+        } else {
+          const [insertBatch] = await db.insert(warehouseBatches).values({
+            productId: item.productId,
+            batchNumber: bNum,
+            expiryDate: expDate,
+            quantity: qty,
+            venueId: userVenueId
+          });
+          batchId = (insertBatch as any).insertId || null;
+        }
+      } else {
+        const existingBatch = await db.select()
+          .from(warehouseBatches)
+          .where(and(
+            eq(warehouseBatches.productId, item.productId),
+            eq(warehouseBatches.batchNumber, 'DEFAULT'),
+            eq(warehouseBatches.venueId, userVenueId)
+          ))
+          .limit(1);
+          
+        if (existingBatch.length > 0) {
+          batchId = existingBatch[0].id;
+          await db.update(warehouseBatches)
+            .set({ quantity: existingBatch[0].quantity + qty })
+            .where(eq(warehouseBatches.id, batchId));
+        } else {
+          const [insertBatch] = await db.insert(warehouseBatches).values({
+            productId: item.productId,
+            batchNumber: 'DEFAULT',
+            expiryDate: null,
+            quantity: qty,
+            venueId: userVenueId
+          });
+          batchId = (insertBatch as any).insertId || null;
+        }
+      }
+      
+      // Log history entry per item
+      await db.insert(warehouseHistory).values({
+        productId: item.productId,
+        batchId,
+        userId,
+        type: 'delivery',
+        quantity: qty,
+        source: supplier.trim(),
+        remarks: remarks.trim() || (documentNumber ? `Faktura/Dokument: ${documentNumber}` : null),
+        attachmentUrl,
+        venueId: userVenueId
+      });
+    }
     
     return { success: true };
   } catch (e: any) {
+    console.error("Błąd podczas zapisywania dostawy zbiorczej:", e);
     return { success: false, error: e.message };
   }
 }
@@ -299,6 +342,7 @@ export async function issueProductAction(data: {
 }) {
   const session = await checkAuth('inventory:issue');
   const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
   
   try {
     const qty = Number(data.quantity);
@@ -310,7 +354,10 @@ export async function issueProductAction(data: {
     
     const batches = await db.select()
       .from(warehouseBatches)
-      .where(eq(warehouseBatches.productId, data.productId))
+      .where(and(
+        eq(warehouseBatches.productId, data.productId),
+        eq(warehouseBatches.venueId, userVenueId)
+      ))
       .orderBy(asc(warehouseBatches.expiryDate), asc(warehouseBatches.id)); // FEFO
        
     const totalAvailable = batches.reduce((acc, b) => acc + b.quantity, 0);
@@ -337,7 +384,8 @@ export async function issueProductAction(data: {
         type: 'issue',
         quantity: -issueFromThisBatch,
         source: data.venue.trim(),
-        remarks: data.remarks?.trim() || null
+        remarks: data.remarks?.trim() || null,
+        venueId: userVenueId
       });
       
       remainingToIssue -= issueFromThisBatch;
@@ -350,17 +398,21 @@ export async function issueProductAction(data: {
 }
 
 // -------------------------------------------------------------
-// INWENTARYZACJE (PEŁNA I WYBIÓRCZA)
+// INWENTARYZACJE (SESJE) DLA LOKALU
 // -------------------------------------------------------------
 
 export async function startInventoryAction(categoryId: number | null) {
   const session = await checkAuth('inventory:inventory');
   const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
   
   try {
     const activeDraft = await db.select()
       .from(warehouseInventories)
-      .where(eq(warehouseInventories.status, 'draft'))
+      .where(and(
+        eq(warehouseInventories.status, 'draft'),
+        eq(warehouseInventories.venueId, userVenueId)
+      ))
       .limit(1);
        
     if (activeDraft.length > 0) {
@@ -371,7 +423,8 @@ export async function startInventoryAction(categoryId: number | null) {
       userId,
       categoryId,
       type: 'full',
-      status: 'draft'
+      status: 'draft',
+      venueId: userVenueId
     });
     
     const inventoryId = (insertInv as any).insertId || 0;
@@ -383,7 +436,7 @@ export async function startInventoryAction(categoryId: number | null) {
     
     const products = await db.select({
       id: warehouseProducts.id,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId}), 0)`
     })
     .from(warehouseProducts)
     .where(and(...conditions));
@@ -439,6 +492,7 @@ export async function saveInventoryDraftAction(inventoryId: number, items: { pro
 export async function submitInventoryAction(inventoryId: number, items: { productId: number; actualStock: number; remarks?: string }[]) {
   const session = await checkAuth('inventory:inventory');
   const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
   
   try {
     const inv = await db.select().from(warehouseInventories).where(eq(warehouseInventories.id, inventoryId)).limit(1);
@@ -460,10 +514,35 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
       
       const activeBatches = await db.select()
         .from(warehouseBatches)
-        .where(eq(warehouseBatches.productId, productId))
+        .where(and(
+          eq(warehouseBatches.productId, productId),
+          eq(warehouseBatches.venueId, userVenueId)
+        ))
         .orderBy(desc(warehouseBatches.id));
         
-      if (activeBatches.length === 0) continue;
+      if (activeBatches.length === 0) {
+        // Jeśli nie było partii w lokalu, zainicjalizuj ją korektą
+        const isExpiry = (await db.select({ hasExpiry: warehouseProducts.hasExpiry }).from(warehouseProducts).where(eq(warehouseProducts.id, productId)).limit(1))[0]?.hasExpiry;
+        const [insertBatch] = await db.insert(warehouseBatches).values({
+          productId,
+          batchNumber: isExpiry ? 'PARTIA-KOREKTA' : 'DEFAULT',
+          expiryDate: null,
+          quantity: diff,
+          venueId: userVenueId
+        });
+        
+        await db.insert(warehouseHistory).values({
+          productId,
+          batchId: (insertBatch as any).insertId || null,
+          userId,
+          type: 'correction',
+          quantity: diff,
+          source: `Inwentaryzacja ID: ${inventoryId}`,
+          remarks: item.remarks || 'Inicjalizacja stanu w inwentaryzacji',
+          venueId: userVenueId
+        });
+        continue;
+      }
       
       if (diff > 0) {
         const targetBatch = activeBatches[0];
@@ -478,7 +557,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
           type: 'correction',
           quantity: diff,
           source: `Inwentaryzacja ID: ${inventoryId}`,
-          remarks: item.remarks || 'Korekta inwentaryzacyjna (nadwyżka)'
+          remarks: item.remarks || 'Korekta inwentaryzacyjna (nadwyżka)',
+          venueId: userVenueId
         });
       } else {
         let remainingToSubtract = Math.abs(diff);
@@ -504,7 +584,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
             type: 'correction',
             quantity: -subtractFromThis,
             source: `Inwentaryzacja ID: ${inventoryId}`,
-            remarks: item.remarks || 'Korekta inwentaryzacyjna (niedobór)'
+            remarks: item.remarks || 'Korekta inwentaryzacyjna (niedobór)',
+            venueId: userVenueId
           });
           
           remainingToSubtract -= subtractFromThis;
@@ -523,7 +604,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
             type: 'correction',
             quantity: -remainingToSubtract,
             source: `Inwentaryzacja ID: ${inventoryId}`,
-            remarks: item.remarks || 'Korekta inwentaryzacyjna (niedobór poniżej zera)'
+            remarks: item.remarks || 'Korekta inwentaryzacyjna (niedobór poniżej zera)',
+            venueId: userVenueId
           });
         }
       }
@@ -533,7 +615,6 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
       .set({ status: 'submitted' })
       .where(eq(warehouseInventories.id, inventoryId));
       
-    // Zamykanie zadania w grafik-checklist jeśli inwentaryzacja była wybiórcza
     if (inv[0].type === 'spot') {
       const todayStr = new Date().toISOString().split('T')[0];
       const execUser = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -548,6 +629,7 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
         })
         .where(and(
           eq(shiftTasks.date, todayStr),
+          eq(shiftTasks.venueId, userVenueId),
           sql`title LIKE '%Inwentaryzacja wybiórcza%'`
         ));
     }
@@ -559,7 +641,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
 }
 
 export async function getInventoryHistoryAction() {
-  await checkAuth('inventory:view');
+  const session = await checkAuth('inventory:view');
+  const userVenueId = (session.user as any).venueId || 1;
   try {
     const data = await db.select({
       id: warehouseInventories.id,
@@ -574,6 +657,7 @@ export async function getInventoryHistoryAction() {
     .from(warehouseInventories)
     .leftJoin(users, eq(warehouseInventories.userId, users.id))
     .leftJoin(warehouseCategories, eq(warehouseInventories.categoryId, warehouseCategories.id))
+    .where(eq(warehouseInventories.venueId, userVenueId))
     .orderBy(desc(warehouseInventories.createdAt));
     
     return { success: true, data };
@@ -639,11 +723,12 @@ export async function cancelInventoryAction(inventoryId: number) {
 }
 
 // -------------------------------------------------------------
-// DASHBOARD I HISTORIA RUCHÓW
+// DASHBOARD I HISTORIA RUCHÓW DLA LOKALU
 // -------------------------------------------------------------
 
 export async function getWarehouseDashboardAction() {
-  await checkAuth('inventory:view');
+  const session = await checkAuth('inventory:view');
+  const userVenueId = (session.user as any).venueId || 1;
   try {
     const products = await db.select({
       id: warehouseProducts.id,
@@ -651,7 +736,7 @@ export async function getWarehouseDashboardAction() {
       minStock: warehouseProducts.minStock,
       maxStock: warehouseProducts.maxStock,
       unit: warehouseProducts.unit,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId}), 0)`
     })
     .from(warehouseProducts)
     .where(eq(warehouseProducts.status, 'active'));
@@ -669,7 +754,8 @@ export async function getWarehouseDashboardAction() {
     .leftJoin(warehouseProducts, eq(warehouseBatches.productId, warehouseProducts.id))
     .where(and(
       sql`expiry_date IS NOT NULL`,
-      sql`quantity > 0`
+      sql`quantity > 0`,
+      eq(warehouseBatches.venueId, userVenueId)
     ));
     
     const today = new Date();
@@ -712,7 +798,10 @@ export async function getWarehouseDashboardAction() {
     .from(warehouseHistory)
     .leftJoin(warehouseProducts, eq(warehouseHistory.productId, warehouseProducts.id))
     .leftJoin(users, eq(warehouseHistory.userId, users.id))
-    .where(eq(warehouseHistory.type, 'delivery'))
+    .where(and(
+      eq(warehouseHistory.type, 'delivery'),
+      eq(warehouseHistory.venueId, userVenueId)
+    ))
     .orderBy(desc(warehouseHistory.createdAt))
     .limit(5);
     
@@ -727,7 +816,10 @@ export async function getWarehouseDashboardAction() {
     .from(warehouseHistory)
     .leftJoin(warehouseProducts, eq(warehouseHistory.productId, warehouseProducts.id))
     .leftJoin(users, eq(warehouseHistory.userId, users.id))
-    .where(eq(warehouseHistory.type, 'issue'))
+    .where(and(
+      eq(warehouseHistory.type, 'issue'),
+      eq(warehouseHistory.venueId, userVenueId)
+    ))
     .orderBy(desc(warehouseHistory.createdAt))
     .limit(5);
     
@@ -738,11 +830,13 @@ export async function getWarehouseDashboardAction() {
     })
     .from(warehouseInventories)
     .leftJoin(users, eq(warehouseInventories.userId, users.id))
-    .where(eq(warehouseInventories.status, 'submitted'))
+    .where(and(
+      eq(warehouseInventories.status, 'submitted'),
+      eq(warehouseInventories.venueId, userVenueId)
+    ))
     .orderBy(desc(warehouseInventories.createdAt))
     .limit(1);
     
-    // Szukamy też ewentualnego aktywnego wybiórczego spot checka na dziś
     const todayStr = new Date().toISOString().split('T')[0];
     const activeSpot = await db.select({
       id: warehouseInventories.id,
@@ -752,6 +846,7 @@ export async function getWarehouseDashboardAction() {
     .where(and(
       eq(warehouseInventories.type, 'spot'),
       eq(warehouseInventories.status, 'draft'),
+      eq(warehouseInventories.venueId, userVenueId),
       sql`DATE(created_at) = ${todayStr}`
     ))
     .limit(1);
@@ -776,9 +871,10 @@ export async function getWarehouseDashboardAction() {
 }
 
 export async function getWarehouseHistoryAction(filters?: { productId?: number; type?: string }) {
-  await checkAuth('inventory:view');
+  const session = await checkAuth('inventory:view');
+  const userVenueId = (session.user as any).venueId || 1;
   try {
-    const conditions = [];
+    const conditions = [eq(warehouseHistory.venueId, userVenueId)];
     if (filters?.productId) {
       conditions.push(eq(warehouseHistory.productId, filters.productId));
     }
@@ -796,17 +892,15 @@ export async function getWarehouseHistoryAction(filters?: { productId?: number; 
       type: warehouseHistory.type,
       source: warehouseHistory.source,
       remarks: warehouseHistory.remarks,
-      userName: users.displayName
+      userName: users.displayName,
+      attachmentUrl: warehouseHistory.attachmentUrl
     })
     .from(warehouseHistory)
     .leftJoin(warehouseProducts, eq(warehouseHistory.productId, warehouseProducts.id))
     .leftJoin(warehouseBatches, eq(warehouseHistory.batchId, warehouseBatches.id))
     .leftJoin(users, eq(warehouseHistory.userId, users.id));
     
-    const query = conditions.length > 0 
-      ? baseQuery.where(and(...conditions))
-      : baseQuery;
-      
+    const query = baseQuery.where(and(...conditions));
     const data = await query.orderBy(desc(warehouseHistory.createdAt));
     return { success: true, data };
   } catch (e: any) {
@@ -815,15 +909,16 @@ export async function getWarehouseHistoryAction(filters?: { productId?: number; 
 }
 
 // -------------------------------------------------------------
-// SYSTEMOWE TRIGGEROWANIE WYBIÓRCZEJ INWENTARYZACJI (SPOT CHECK)
+// SYSTEMOWE TRIGGEROWANIE WYBIÓRCZEJ INWENTARYZACJI (SPOT CHECK) PER LOKAL
 // -------------------------------------------------------------
 
-export async function triggerDailySpotCheckAction(dateStr: string) {
+export async function triggerDailySpotCheckAction(dateStr: string, venueId: number) {
   try {
     const existing = await db.select()
       .from(warehouseInventories)
       .where(and(
         eq(warehouseInventories.type, 'spot'),
+        eq(warehouseInventories.venueId, venueId),
         sql`DATE(created_at) = ${dateStr}`
       ))
       .limit(1);
@@ -835,7 +930,7 @@ export async function triggerDailySpotCheckAction(dateStr: string) {
     const spotCheckProducts = await db.select({
       id: warehouseProducts.id,
       name: warehouseProducts.name,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${venueId}), 0)`
     })
     .from(warehouseProducts)
     .where(and(
@@ -850,14 +945,15 @@ export async function triggerDailySpotCheckAction(dateStr: string) {
     const shuffled = [...spotCheckProducts].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, 3);
     
-    const defaultAdmin = await db.select().from(users).where(eq(users.role, 'owner')).limit(1);
+    const defaultAdmin = await db.select().from(users).where(and(eq(users.role, 'owner'), eq(users.venueId, venueId))).limit(1);
     const systemUserId = defaultAdmin.length > 0 ? defaultAdmin[0].id : 1;
     
     const [insertInv] = await db.insert(warehouseInventories).values({
       userId: systemUserId,
       type: 'spot',
       status: 'draft',
-      createdAt: new Date(dateStr + "T08:00:00")
+      createdAt: new Date(dateStr + "T08:00:00"),
+      venueId
     });
     const inventoryId = (insertInv as any).insertId || 0;
     
@@ -878,10 +974,11 @@ export async function triggerDailySpotCheckAction(dateStr: string) {
       type: 'recurring',
       priority: 'high',
       isCompleted: false,
-      isDemo: false
+      isDemo: false,
+      venueId
     });
     
-    console.log(`[SpotCheck] Wygenerowano automatyczną inwentaryzację ID: ${inventoryId} na dzień ${dateStr}`);
+    console.log(`[SpotCheck] Wygenerowano automatyczną inwentaryzację ID: ${inventoryId} dla lokalu ID: ${venueId} na dzień ${dateStr}`);
     return { success: true, inventoryId };
   } catch (e: any) {
     console.error("Błąd generowania inwentaryzacji wybiórczej:", e);

@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from "@/db";
-import { users, settings, salaryHistory } from "@/db/schema";
+import { users, settings, salaryHistory, venues } from "@/db/schema";
 import { eq, ne, and, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
@@ -96,7 +96,8 @@ export async function getUsersAction() {
         mustChangePassword: users.mustChangePassword,
         hourlyRate: users.hourlyRate,
         createdAt: users.createdAt,
-        permissions: users.permissions
+        permissions: users.permissions,
+        venueId: users.venueId
       })
       .from(users);
 
@@ -121,6 +122,7 @@ export async function createUserAction(userData: {
   birthDate: string;
   hourlyRate: number;
   permissions?: string;
+  venueId?: number;
 }) {
   const session = await checkAuth('users:manage');
 
@@ -173,6 +175,7 @@ export async function createUserAction(userData: {
       mustChangePassword: true, // Wymuszamy zmianę przy pierwszym logowaniu
       hourlyRate: hourlyRate || 0,
       permissions: userPermissions,
+      venueId: userData.venueId || null,
       isDemo: false
     });
 
@@ -361,6 +364,7 @@ export async function updateUserAction(
     position: string;
     birthDate: string;
     permissions?: string;
+    venueId?: number;
   }
 ) {
   const session = await checkAuth('users:manage');
@@ -392,7 +396,8 @@ export async function updateUserAction(
         role,
         position: position.trim(),
         birthDate: birthDate.trim(),
-        permissions: permissions || ''
+        permissions: permissions || '',
+        venueId: userData.venueId || null
       })
       .where(eq(users.id, userId));
 
@@ -476,5 +481,68 @@ export async function resetUserPasswordAction(userId: number) {
   } catch (e: any) {
     console.error("Błąd podczas resetu hasła:", e);
     return { success: false, error: "Błąd bazy danych przy resetowaniu hasła." };
+  }
+}
+
+/**
+ * Pobiera wszystkie lokale z bazy danych
+ */
+export async function getVenuesAction() {
+  const session = await auth();
+  if (!session?.user) throw new Error("Brak autoryzacji.");
+  
+  try {
+    const results = await db.select().from(venues).orderBy(venues.name);
+    return { success: true, venues: results };
+  } catch (e: any) {
+    console.error("Błąd podczas pobierania lokali:", e);
+    return { success: false, venues: [], error: "Błąd bazy danych przy pobieraniu lokali." };
+  }
+}
+
+/**
+ * Zapisuje lokal (nowy lub zmiana nazwy)
+ */
+export async function saveVenueAction(id: number | null, name: string) {
+  await checkAuth('settings:edit');
+  if (!name || !name.trim()) return { success: false, error: "Nazwa lokalu jest wymagana." };
+
+  try {
+    if (id) {
+      await db.update(venues).set({ name: name.trim() }).where(eq(venues.id, id));
+      console.log(`[Settings] Zaktualizowano lokal ID: ${id} na: ${name}`);
+    } else {
+      await db.insert(venues).values({ name: name.trim() });
+      console.log(`[Settings] Dodano nowy lokal: ${name}`);
+    }
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd podczas zapisu lokalu:", e);
+    return { success: false, error: "Błąd zapisu lokalu w bazie danych (np. nazwa musi być unikalna)." };
+  }
+}
+
+/**
+ * Usuwa lokal z systemu, o ile nie ma do niego przypisanych aktywnych użytkowników.
+ */
+export async function deleteVenueAction(id: number) {
+  await checkAuth('settings:edit');
+  if (id === 1) {
+    return { success: false, error: "Nie można usunąć głównego lokalu domyślnego." };
+  }
+
+  try {
+    // Sprawdzamy czy są użytkownicy przypisani do tego lokalu
+    const assignedUsers = await db.select().from(users).where(eq(users.venueId, id)).limit(1);
+    if (assignedUsers.length > 0) {
+      return { success: false, error: "Nie można usunąć lokalu, do którego są przypisani pracownicy. Najpierw przypisz ich do innego lokalu." };
+    }
+
+    await db.delete(venues).where(eq(venues.id, id));
+    console.log(`[Settings] Usunięto lokal o ID: ${id}`);
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd podczas usuwania lokalu:", e);
+    return { success: false, error: "Błąd bazy danych podczas usuwania lokalu." };
   }
 }

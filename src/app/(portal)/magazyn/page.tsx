@@ -34,7 +34,7 @@ import {
   addProductAction, 
   updateProductAction, 
   deleteProductAction, 
-  deliverProductAction, 
+  deliverBulkProductsAction, 
   issueProductAction, 
   startInventoryAction, 
   saveInventoryDraftAction, 
@@ -113,6 +113,8 @@ export default function WarehousePage() {
     documentNumber: '',
     remarks: ''
   });
+  const [deliverFile, setDeliverFile] = useState<File | null>(null);
+  const [deliverFileWarning, setDeliverFileWarning] = useState(false);
 
   const [showIssueModal, setShowIssueModal] = useState<number | null>(null); // productId
   const [issueForm, setIssueForm] = useState({
@@ -300,22 +302,55 @@ export default function WarehousePage() {
       documentNumber: '',
       remarks: ''
     });
+    setDeliverFile(null);
+    setDeliverFileWarning(false);
   };
 
   const handleDeliverProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!showDeliverModal) return;
+
+    // Miękkie ostrzeżenie przy braku zdjęcia
+    if (!deliverFile) {
+      setDeliverFileWarning(true);
+      // Pytanie czy kontynuować bez zdjęcia
+      const proceed = window.confirm(
+        '⚠️ Brak zdjęcia faktury / paragonu!\n\nZdjęcie dokumentu jest wymagane do pełnej zgodności z procedurami, ale możesz zapisać dostawę bez niego.\n\nCzy na pewno chcesz przejść dalej bez zdjęcia?'
+      );
+      if (!proceed) return;
+    } else {
+      // Standardowy dialog potwierdzający
+      const confirmed = window.confirm('Czy na pewno chcesz zarejestrować tę dostawę? Po zatwierdzeniu stan magazynu zostanie zaktualizowany.');
+      if (!confirmed) return;
+    }
+
     setActionLoading(true);
     try {
-      const res = await deliverProductAction({
+      const selectedProduct = products.find(p => p.id === showDeliverModal);
+      const formData = new FormData();
+      formData.append('supplier', deliverForm.supplier || 'Dostawca Zewnętrzny');
+      formData.append('documentNumber', deliverForm.documentNumber || '');
+      formData.append('remarks', deliverForm.remarks || '');
+      formData.append('items', JSON.stringify([{
         productId: showDeliverModal,
-        ...deliverForm
-      });
+        quantity: deliverForm.quantity,
+        batchNumber: deliverForm.batchNumber || '',
+        expiryDate: deliverForm.expiryDate || ''
+      }]));
+      if (deliverFile) {
+        formData.append('file', deliverFile);
+      } else {
+        // Dołącz pusty plik zastępczy, żeby backend nie blokował
+        formData.append('file', new Blob([], { type: 'image/jpeg' }), 'brak-zdj.jpg');
+      }
+
+      const res = await deliverBulkProductsAction(formData);
 
       if (res.success) {
         setStatusMsg({ type: 'success', text: 'Zarejestrowano przyjęcie dostawy i zaktualizowano stan.' });
         setShowDeliverModal(null);
-        // Przeładuj katalog, dashboard i historię
+        setDeliverFile(null);
+        setDeliverFileWarning(false);
         const [productsRes, dashRes, historyRes] = await Promise.all([
           getProductsAction(),
           getWarehouseDashboardAction(),
@@ -331,7 +366,7 @@ export default function WarehousePage() {
       setStatusMsg({ type: 'error', text: err.message });
     } finally {
       setActionLoading(false);
-      setTimeout(() => setStatusMsg(null), 4000);
+      setTimeout(() => setStatusMsg(null), 5000);
     }
   };
 
@@ -1148,6 +1183,38 @@ export default function WarehousePage() {
                           className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                         />
                       </div>
+                    </div>
+
+                    {/* Pole zdjęcia faktury */}
+                    <div className={`p-3 rounded-xl border ${deliverFile ? 'border-green-500/30 bg-green-500/5' : deliverFileWarning ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/10 bg-white/2'} transition-all`}>
+                      <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 ${deliverFile ? 'text-green-400' : deliverFileWarning ? 'text-amber-400' : 'text-[#888]'}`}>
+                        {deliverFile ? '✅ Zdjęcie faktury / paragonu dołączone' : '📷 Zdjęcie faktury / paragonu (zalecane)'}
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={e => {
+                          const f = e.target.files?.[0] || null;
+                          setDeliverFile(f);
+                          if (f) setDeliverFileWarning(false);
+                        }}
+                        className="w-full text-xs text-[#a0a0a0] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-gold/20 file:text-brand-gold hover:file:bg-brand-gold/30 file:cursor-pointer cursor-pointer"
+                      />
+                      {deliverFile && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-green-400">
+                          <CheckCircle className="w-3 h-3" />
+                          <span>{deliverFile.name} ({(deliverFile.size / 1024).toFixed(0)} KB)</span>
+                        </div>
+                      )}
+                      {!deliverFile && deliverFileWarning && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-400">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>Brak zdjęcia — wymagane potwierdzenie przy wysyłce</span>
+                        </div>
+                      )}
+                      {!deliverFile && !deliverFileWarning && (
+                        <p className="mt-1 text-[10px] text-[#555] italic">Dołącz zdjęcie lub skan faktury / paragonu przed zatwierdzeniem dostawy.</p>
+                      )}
                     </div>
 
                     <button

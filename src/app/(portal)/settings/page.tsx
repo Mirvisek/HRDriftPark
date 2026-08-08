@@ -21,7 +21,8 @@ import {
   X,
   ClipboardList,
   Edit,
-  KeyRound
+  KeyRound,
+  Building
 } from 'lucide-react';
 import { 
   getSettingsAction, 
@@ -32,7 +33,10 @@ import {
   testSmtpConnectionAction,
   updateUserRateAction,
   updateUserAction,
-  resetUserPasswordAction
+  resetUserPasswordAction,
+  getVenuesAction,
+  saveVenueAction,
+  deleteVenueAction
 } from '@/app/actions/settingsActions';
 import { 
   getTaskTemplatesAction, 
@@ -76,7 +80,7 @@ const getDefaultPermissionsForRole = (role: string): string => {
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'smtp' | 'tasks'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'smtp' | 'tasks' | 'venues'>('users');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
@@ -95,8 +99,14 @@ export default function SettingsPage() {
     position: 'Pracownik toru',
     birthDate: '',
     hourlyRate: 0,
-    permissions: 'schedule:view,timesheet:view_own,tasks:view',
+    permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue',
+    venueId: 1,
   });
+
+  // Lokale
+  const [venuesList, setVenuesList] = useState<any[]>([]);
+  const [newVenueName, setNewVenueName] = useState('');
+  const [editingVenueId, setEditingVenueId] = useState<number | null>(null);
 
   // Szablony zadań stałych
   const [templatesList, setTemplatesList] = useState<any[]>([]);
@@ -156,10 +166,11 @@ export default function SettingsPage() {
       const results = await Promise.all([
         loadUsers ? getUsersAction() : Promise.resolve(null),
         loadSettings ? getSettingsAction() : Promise.resolve(null),
-        loadTemplates ? getTaskTemplatesAction() : Promise.resolve(null)
+        loadTemplates ? getTaskTemplatesAction() : Promise.resolve(null),
+        getVenuesAction()
       ]);
 
-      const [usersRes, settingsRes, templatesRes] = results;
+      const [usersRes, settingsRes, templatesRes, venuesRes] = results;
 
       if (usersRes && usersRes.success) {
         setUsersList(usersRes.users || []);
@@ -174,6 +185,10 @@ export default function SettingsPage() {
 
       if (templatesRes && templatesRes.success) {
         setTemplatesList(templatesRes.data || []);
+      }
+
+      if (venuesRes && venuesRes.success) {
+        setVenuesList(venuesRes.venues || []);
       }
     } catch (err) {
       console.error("Błąd ładowania danych ustawień:", err);
@@ -201,7 +216,8 @@ export default function SettingsPage() {
           position: 'Pracownik toru',
           birthDate: '',
           hourlyRate: 0,
-          permissions: 'schedule:view,timesheet:view_own,tasks:view',
+          permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue',
+          venueId: 1,
         });
         // Ponowne załadowanie listy
         const usersRes = await getUsersAction();
@@ -278,6 +294,7 @@ export default function SettingsPage() {
       position: user.position,
       birthDate: user.birthDate,
       permissions: user.permissions || '',
+      venueId: user.venueId
     });
     setShowAddForm(false); // Zamknij form dodawania, jeśli otwarty
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -444,6 +461,19 @@ export default function SettingsPage() {
             <span>Szablony zadań</span>
           </button>
         )}
+        {hasPermission(session?.user, 'settings:edit') && (
+          <button
+            onClick={() => { setActiveTab('venues'); setStatusMsg(null); }}
+            className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+              activeTab === 'venues'
+                ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+                : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+            }`}
+          >
+            <Building className="w-4 h-4" />
+            <span>Lokale</span>
+          </button>
+        )}
       </div>
 
       {/* Zawartość Zakładki: UŻYTKOWNICY */}
@@ -553,6 +583,19 @@ export default function SettingsPage() {
                     onChange={e => setEditingUser((prev: any) => ({ ...prev, birthDate: e.target.value }))}
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypisany Lokal</label>
+                  <select
+                    value={editingUser.venueId || ''}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, venueId: e.target.value ? Number(e.target.value) : null }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  >
+                    <option value="">-- Brak / Centrala --</option>
+                    {venuesList.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="md:col-span-2 border-t border-white/5 pt-4 mt-2">
                   <label className="block text-[11px] font-extrabold text-[#ffd700] uppercase tracking-wider mb-3">
@@ -719,6 +762,19 @@ export default function SettingsPage() {
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   />
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Przypisany Lokal</label>
+                  <select
+                    value={newUser.venueId || ''}
+                    onChange={e => setNewUser(prev => ({ ...prev, venueId: e.target.value ? Number(e.target.value) : '' as any }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  >
+                    <option value="">-- Brak / Centrala --</option>
+                    {venuesList.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="md:col-span-2 border-t border-white/5 pt-4 mt-2">
                   <label className="block text-[11px] font-extrabold text-[#ffd700] uppercase tracking-wider mb-3">
                     Indywidualne Uprawnienia Dostępowe:
@@ -785,6 +841,7 @@ export default function SettingsPage() {
                     <th className="p-4">Nazwa wyświetlana</th>
                     <th className="p-4">E-mail</th>
                     <th className="p-4">Stanowisko</th>
+                    <th className="p-4">Lokal</th>
                     <th className="p-4">Rola</th>
                     <th className="p-4">Stawka</th>
                     <th className="p-4">Data urodzenia</th>
@@ -803,6 +860,9 @@ export default function SettingsPage() {
                         </td>
                         <td className="p-4 text-[#a0a0a0]">{u.email}</td>
                         <td className="p-4 text-[#e0e0e0]">{u.position}</td>
+                        <td className="p-4 text-[#e0e0e0]">
+                          {venuesList.find(v => v.id === u.venueId)?.name || <span className="text-white/30 italic">Centrala</span>}
+                        </td>
                         <td className="p-4">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${roleBadges[u.role] || ''}`}>
                             {roleNames[u.role] || u.role}
@@ -1260,6 +1320,145 @@ export default function SettingsPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zawartość Zakładki: LOKALE */}
+      {activeTab === 'venues' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Formularz dodawania/edycji lokalu */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 h-fit relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-red via-brand-gold to-brand-red" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Building className="w-4 h-4 text-brand-gold" />
+                <span>{editingVenueId ? 'Edycja lokalu' : 'Dodaj nowy lokal'}</span>
+              </h3>
+              
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!newVenueName.trim()) return;
+                  setActionLoading(true);
+                  try {
+                    const res = await saveVenueAction(editingVenueId, newVenueName);
+                    if (res.success) {
+                      setStatusMsg({ type: 'success', text: editingVenueId ? 'Zmieniono nazwę lokalu.' : 'Dodano nowy lokal.' });
+                      setNewVenueName('');
+                      setEditingVenueId(null);
+                      const vRes = await getVenuesAction();
+                      if (vRes.success) setVenuesList(vRes.venues || []);
+                    } else {
+                      setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu lokalu.' });
+                    }
+                  } catch (err: any) {
+                    setStatusMsg({ type: 'error', text: err.message });
+                  } finally {
+                    setActionLoading(false);
+                    setTimeout(() => setStatusMsg(null), 4000);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Nazwa lokalu</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="np. Tarnów, Warszawa"
+                    value={newVenueName}
+                    onChange={e => setNewVenueName(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-5 py-2 bg-brand-gold hover:opacity-95 text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider transition cursor-pointer"
+                  >
+                    {editingVenueId ? 'Zapisz' : 'Dodaj'}
+                  </button>
+                  {editingVenueId && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingVenueId(null); setNewVenueName(''); }}
+                      className="px-4 py-2 bg-[#222] text-white text-xs font-bold rounded-lg uppercase tracking-wider cursor-pointer"
+                    >
+                      Anuluj
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* Tabela lokali */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 lg:col-span-2 space-y-4">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Lista Lokali</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-white/5 text-[9px] font-extrabold text-[#555] uppercase tracking-wider">
+                      <th className="pb-3 w-[10%]">ID</th>
+                      <th className="pb-3 w-[45%]">Nazwa lokalu</th>
+                      <th className="pb-3 w-[25%]">Utworzono</th>
+                      <th className="pb-3 text-right w-[20%]">Akcje</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-xs text-[#a0a0a0]">
+                    {venuesList.map(v => (
+                      <tr key={v.id} className="hover:bg-white/2 transition">
+                        <td className="py-3 font-mono text-[#555]">{v.id}</td>
+                        <td className="py-3 font-bold text-white">
+                          {v.name} {v.id === 1 && <span className="text-[10px] text-brand-gold font-normal italic ml-1">(Domyślny)</span>}
+                        </td>
+                        <td className="py-3 text-[#666]">
+                          {v.createdAt ? new Date(v.createdAt).toLocaleDateString('pl-PL') : '-'}
+                        </td>
+                        <td className="py-3 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => { setEditingVenueId(v.id); setNewVenueName(v.name); }}
+                              className="px-2 py-1 bg-white/5 hover:bg-white/10 text-white text-[10px] font-bold uppercase rounded cursor-pointer transition border border-white/5"
+                            >
+                              Edytuj
+                            </button>
+                            {v.id !== 1 && (
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`Czy na pewno chcesz usunąć lokal "${v.name}"?`)) return;
+                                  setActionLoading(true);
+                                  try {
+                                    const res = await deleteVenueAction(v.id);
+                                    if (res.success) {
+                                      setStatusMsg({ type: 'success', text: 'Usunięto lokal.' });
+                                      const vRes = await getVenuesAction();
+                                      if (vRes.success) setVenuesList(vRes.venues || []);
+                                    } else {
+                                      setStatusMsg({ type: 'error', text: res.error || 'Błąd usuwania lokalu.' });
+                                    }
+                                  } catch (err: any) {
+                                    setStatusMsg({ type: 'error', text: err.message });
+                                  } finally {
+                                    setActionLoading(false);
+                                    setTimeout(() => setStatusMsg(null), 4000);
+                                  }
+                                }}
+                                className="px-2 py-1 bg-brand-red/10 hover:bg-brand-red/20 border border-brand-red/20 text-brand-red text-[10px] font-bold uppercase rounded cursor-pointer transition"
+                              >
+                                Usuń
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

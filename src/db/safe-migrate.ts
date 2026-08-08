@@ -231,6 +231,78 @@ async function main() {
     console.error("Błąd podczas tworzenia tabeli 'warehouse_inventory_items':", e.message);
   }
 
+  // 4.7. Tworzenie tabeli venues
+  try {
+    console.log("Tworzenie tabeli 'venues'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`venues\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(255) NOT NULL UNIQUE,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'venues' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'venues':", e.message);
+  }
+
+  // Wstawienie domyślnego lokalu, jeśli tabela venues jest pusta
+  try {
+    const existingVenues = await db.execute(sql.raw("SELECT COUNT(*) as count FROM `venues`;"));
+    const count = (existingVenues as any)[0]?.[0]?.count || (existingVenues as any)[0]?.count || 0;
+    if (Number(count) === 0) {
+      console.log("Wstawianie domyślnego lokalu 'Kraków Rynek'...");
+      await db.execute(sql.raw("INSERT INTO `venues` (id, name) VALUES (1, 'Kraków Rynek');"));
+      console.log("[✓] Wstawiono domyślny lokal.");
+    }
+  } catch (e: any) {
+    console.error("Błąd podczas sprawdzania/wstawiania domyślnego lokalu:", e.message);
+  }
+
+  // Dodanie kolumny venue_id do powiązanych tabel
+  const tablesToAlterVenue = [
+    'users',
+    'work_schedule',
+    'shift_tasks',
+    'task_templates',
+    'warehouse_batches',
+    'warehouse_history',
+    'warehouse_inventories'
+  ];
+
+  for (const tbl of tablesToAlterVenue) {
+    try {
+      console.log(`Dodawanie kolumny 'venue_id' do tabeli '${tbl}'...`);
+      await db.execute(sql.raw(`ALTER TABLE \`${tbl}\` ADD COLUMN \`venue_id\` INT NULL;`));
+      console.log(`[✓] Pomyślnie dodano kolumnę 'venue_id' do '${tbl}'.`);
+    } catch (e: any) {
+      if (e.code === 'ER_DUP_FIELDNAME') {
+        console.log(`[i] Kolumna 'venue_id' w '${tbl}' już istnieje.`);
+      } else {
+        console.error(`Błąd podczas dodawania kolumny 'venue_id' do '${tbl}':`, e.message);
+      }
+    }
+
+    try {
+      await db.execute(sql.raw(`UPDATE \`${tbl}\` SET \`venue_id\` = 1 WHERE \`venue_id\` IS NULL;`));
+    } catch (e: any) {
+      console.error(`Błąd podczas ustawiania domyślnego 'venue_id' dla '${tbl}':`, e.message);
+    }
+  }
+
+  // Dodanie kolumny attachment_url do warehouse_history
+  try {
+    console.log("Dodawanie kolumny 'attachment_url' do tabeli 'warehouse_history'...");
+    await db.execute(sql.raw("ALTER TABLE `warehouse_history` ADD COLUMN `attachment_url` TEXT NULL;"));
+    console.log("[✓] Pomyślnie dodano kolumnę 'attachment_url' do 'warehouse_history'.");
+  } catch (e: any) {
+    if (e.code === 'ER_DUP_FIELDNAME') {
+      console.log("[i] Kolumna 'attachment_url' w 'warehouse_history' już istnieje.");
+    } else {
+      console.error("Błąd podczas dodawania kolumny 'attachment_url' do 'warehouse_history':", e.message);
+    }
+  }
+
   // 5. Inicjalizacja stawek początkowych oraz uprawnień dla istniejących użytkowników
   try {
     console.log("Generowanie stawek początkowych w salary_history oraz domyślnych uprawnień dla obecnych użytkowników...");
