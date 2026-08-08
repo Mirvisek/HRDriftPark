@@ -103,18 +103,25 @@ export default function WarehousePage() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
 
-  // Formularze szybkiego ruchu
-  const [showDeliverModal, setShowDeliverModal] = useState<number | null>(null); // productId
-  const [deliverForm, setDeliverForm] = useState({
-    quantity: 1,
+  // Formularz ZBIORCZEJ dostawy
+  const [bulkDelivery, setBulkDelivery] = useState({
     supplier: '',
-    batchNumber: '',
-    expiryDate: '',
     documentNumber: '',
     remarks: ''
   });
+  type BulkItem = { uid: string; productId: number | ''; quantity: number; batchNumber: string; expiryDate: string; };
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([
+    { uid: crypto.randomUUID(), productId: '', quantity: 1, batchNumber: '', expiryDate: '' }
+  ]);
   const [deliverFile, setDeliverFile] = useState<File | null>(null);
   const [deliverFileWarning, setDeliverFileWarning] = useState(false);
+
+  // Modal szybkiego dodania nowego produktu
+  const [quickAddProduct, setQuickAddProduct] = useState(false);
+  const [quickAddForm, setQuickAddForm] = useState({
+    name: '', categoryId: '', unit: 'szt.', supplier: '', hasExpiry: false, minStock: 0, maxStock: 0
+  });
+  const [quickAddTargetUid, setQuickAddTargetUid] = useState<string | null>(null);
 
   const [showIssueModal, setShowIssueModal] = useState<number | null>(null); // productId
   const [issueForm, setIssueForm] = useState({
@@ -292,65 +299,117 @@ export default function WarehousePage() {
   // -------------------------------------------------------------
   // OPERACJE DOSTAW
   // -------------------------------------------------------------
-  const openDeliverModal = (p: any) => {
-    setShowDeliverModal(p.id);
-    setDeliverForm({
-      quantity: 1,
-      supplier: p.supplier || '',
-      batchNumber: '',
-      expiryDate: '',
-      documentNumber: '',
-      remarks: ''
-    });
+  // Pomocnicze: resetuj koszyk dostawy
+  const resetBulkDelivery = () => {
+    setBulkDelivery({ supplier: '', documentNumber: '', remarks: '' });
+    setBulkItems([{ uid: crypto.randomUUID(), productId: '', quantity: 1, batchNumber: '', expiryDate: '' }]);
     setDeliverFile(null);
     setDeliverFileWarning(false);
   };
 
-  const handleDeliverProduct = async (e: React.FormEvent) => {
+  // Dodaj pustą pozycję do koszyka
+  const addBulkItem = () => {
+    setBulkItems(prev => [...prev, { uid: crypto.randomUUID(), productId: '', quantity: 1, batchNumber: '', expiryDate: '' }]);
+  };
+
+  // Usuń pozycję z koszyka (minimum 1 musi zostać)
+  const removeBulkItem = (uid: string) => {
+    setBulkItems(prev => prev.length > 1 ? prev.filter(i => i.uid !== uid) : prev);
+  };
+
+  // Zaktualizuj pole pozycji w koszyku
+  const updateBulkItem = (uid: string, field: keyof BulkItem, value: any) => {
+    setBulkItems(prev => prev.map(i => i.uid === uid ? { ...i, [field]: value } : i));
+  };
+
+  // Szybkie dodanie nowego produktu w trakcie dostawy
+  const handleQuickAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!showDeliverModal) return;
+    if (!quickAddForm.name.trim() || !quickAddForm.categoryId) return;
+    setActionLoading(true);
+    try {
+      const res = await addProductAction({
+        name: quickAddForm.name,
+        categoryId: quickAddForm.categoryId,
+        unit: quickAddForm.unit,
+        supplier: quickAddForm.supplier,
+        hasExpiry: quickAddForm.hasExpiry,
+        minStock: quickAddForm.minStock,
+        maxStock: quickAddForm.maxStock,
+        sku: '',
+        location: '',
+        autoSpotCheck: false,
+        remarks: ''
+      });
+      if (res.success && res.productId) {
+        const productsRes = await getProductsAction();
+        if (productsRes.success) setProducts(productsRes.data || []);
+        // Ustaw nowy produkt w docelowej pozycji koszyka
+        if (quickAddTargetUid) {
+          updateBulkItem(quickAddTargetUid, 'productId', res.productId);
+        }
+        setQuickAddProduct(false);
+        setQuickAddForm({ name: '', categoryId: '', unit: 'szt.', supplier: '', hasExpiry: false, minStock: 0, maxStock: 0 });
+        setQuickAddTargetUid(null);
+        setStatusMsg({ type: 'success', text: `Dodano nowy produkt "${quickAddForm.name}" do katalogu.` });
+      } else {
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd dodawania produktu.' });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message });
+    } finally {
+      setActionLoading(false);
+      setTimeout(() => setStatusMsg(null), 4000);
+    }
+  };
+
+  // Zbiorcze przyjęcie dostawy
+  const handleBulkDelivery = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Walidacja: każda pozycja musi mieć produkt
+    const validItems = bulkItems.filter(i => i.productId !== '' && i.quantity > 0);
+    if (validItems.length === 0) {
+      setStatusMsg({ type: 'error', text: 'Dodaj co najmniej jedną pozycję dostawy.' });
+      setTimeout(() => setStatusMsg(null), 4000);
+      return;
+    }
 
     // Miękkie ostrzeżenie przy braku zdjęcia
     if (!deliverFile) {
       setDeliverFileWarning(true);
-      // Pytanie czy kontynuować bez zdjęcia
       const proceed = window.confirm(
-        '⚠️ Brak zdjęcia faktury / paragonu!\n\nZdjęcie dokumentu jest wymagane do pełnej zgodności z procedurami, ale możesz zapisać dostawę bez niego.\n\nCzy na pewno chcesz przejść dalej bez zdjęcia?'
+        '\u26a0\ufe0f Brak zdjęcia faktury / paragonu!\n\nZdjęcie dokumentu jest wymagane do pełnej zgodności z procedurami.\n\nCzy na pewno chcesz przejść dalej bez zdjęcia?'
       );
       if (!proceed) return;
     } else {
-      // Standardowy dialog potwierdzający
-      const confirmed = window.confirm('Czy na pewno chcesz zarejestrować tę dostawę? Po zatwierdzeniu stan magazynu zostanie zaktualizowany.');
+      const confirmed = window.confirm(`Czy na pewno chcesz zarejestrować dostawę (${validItems.length} poz.)? Po zatwierdzeniu stany magazynowe zostaną zaktualizowane.`);
       if (!confirmed) return;
     }
 
     setActionLoading(true);
     try {
-      const selectedProduct = products.find(p => p.id === showDeliverModal);
       const formData = new FormData();
-      formData.append('supplier', deliverForm.supplier || 'Dostawca Zewnętrzny');
-      formData.append('documentNumber', deliverForm.documentNumber || '');
-      formData.append('remarks', deliverForm.remarks || '');
-      formData.append('items', JSON.stringify([{
-        productId: showDeliverModal,
-        quantity: deliverForm.quantity,
-        batchNumber: deliverForm.batchNumber || '',
-        expiryDate: deliverForm.expiryDate || ''
-      }]));
+      formData.append('supplier', bulkDelivery.supplier || 'Dostawca Zewnętrzny');
+      formData.append('documentNumber', bulkDelivery.documentNumber || '');
+      formData.append('remarks', bulkDelivery.remarks || '');
+      formData.append('items', JSON.stringify(validItems.map(i => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        batchNumber: i.batchNumber || '',
+        expiryDate: i.expiryDate || ''
+      }))));
       if (deliverFile) {
         formData.append('file', deliverFile);
       } else {
-        // Dołącz pusty plik zastępczy, żeby backend nie blokował
         formData.append('file', new Blob([], { type: 'image/jpeg' }), 'brak-zdj.jpg');
       }
 
       const res = await deliverBulkProductsAction(formData);
 
       if (res.success) {
-        setStatusMsg({ type: 'success', text: 'Zarejestrowano przyjęcie dostawy i zaktualizowano stan.' });
-        setShowDeliverModal(null);
-        setDeliverFile(null);
-        setDeliverFileWarning(false);
+        setStatusMsg({ type: 'success', text: `Zarejestrowano dostawę: ${validItems.length} pozycji. Stany zostały zaktualizowane.` });
+        resetBulkDelivery();
         const [productsRes, dashRes, historyRes] = await Promise.all([
           getProductsAction(),
           getWarehouseDashboardAction(),
@@ -1026,7 +1085,11 @@ export default function WarehousePage() {
                             <div className="flex justify-end items-center gap-2">
                               {canDeliver && p.status === 'active' && (
                                 <button
-                                  onClick={() => openDeliverModal(p)}
+                                  onClick={() => {
+                                    setBulkItems([{ uid: crypto.randomUUID(), productId: p.id, quantity: 1, batchNumber: '', expiryDate: '' }]);
+                                    setBulkDelivery(prev => ({ ...prev, supplier: p.supplier || '' }));
+                                    setActiveTab('deliveries');
+                                  }}
                                   className="px-2 py-1 bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 hover:border-green-500/30 text-green-400 text-[10px] font-bold uppercase rounded cursor-pointer transition"
                                 >
                                   Dostawa
@@ -1077,163 +1140,310 @@ export default function WarehousePage() {
       {/* KARTA: DOSTAWY                                                */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'deliveries' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Formularz wprowadzania dostawy */}
-          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 h-fit">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <Plus className="w-4 h-4 text-green-400" />
-              <span>Zarejestruj nową dostawę</span>
-            </h3>
-            
-            {canDeliver ? (
-              <form onSubmit={handleDeliverProduct} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Produkt z katalogu</label>
-                  <select
-                    value={showDeliverModal || ''}
-                    onChange={e => {
-                      const pId = Number(e.target.value);
-                      setShowDeliverModal(pId);
-                      const selectedProd = products.find(p => p.id === pId);
-                      if (selectedProd) {
-                        setDeliverForm(prev => ({ ...prev, supplier: selectedProd.supplier || '' }));
-                      }
-                    }}
-                    required
-                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+        <div className="space-y-6">
+          {/* Modal szybkiego dodania produktu */}
+          {quickAddProduct && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+              <div className="glass-card p-6 rounded-2xl border border-white/10 w-full max-w-md space-y-4 relative">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-gold to-yellow-400 rounded-t-2xl" />
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-brand-gold" />
+                    Szybkie dodanie nowego produktu
+                  </h3>
+                  <button onClick={() => setQuickAddProduct(false)} className="text-[#555] hover:text-white transition cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <form onSubmit={handleQuickAddProduct} className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1">Nazwa produktu *</label>
+                    <input
+                      type="text" required autoFocus
+                      value={quickAddForm.name}
+                      onChange={e => setQuickAddForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="np. Dętka 14&quot; MTB"
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1">Kategoria *</label>
+                      <select required
+                        value={quickAddForm.categoryId}
+                        onChange={e => setQuickAddForm(p => ({ ...p, categoryId: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      >
+                        <option value="">-- Wybierz --</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1">Jednostka</label>
+                      <select
+                        value={quickAddForm.unit}
+                        onChange={e => setQuickAddForm(p => ({ ...p, unit: e.target.value }))}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      >
+                        {['szt.','kg','l','m','op.','para','kpl.'].map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1">Dostawca</label>
+                    <input
+                      type="text"
+                      value={quickAddForm.supplier}
+                      onChange={e => setQuickAddForm(p => ({ ...p, supplier: e.target.value }))}
+                      placeholder="np. Makro, Allegro..."
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer group">
+                    <input type="checkbox" checked={quickAddForm.hasExpiry} onChange={e => setQuickAddForm(p => ({ ...p, hasExpiry: e.target.checked }))} className="rounded" />
+                    <span className="text-xs text-[#a0a0a0] group-hover:text-white transition">Produkt ma datę ważności</span>
+                  </label>
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={() => setQuickAddProduct(false)} className="flex-1 py-2 text-xs font-bold text-[#888] hover:text-white border border-white/10 rounded-lg transition cursor-pointer">Anuluj</button>
+                    <button type="submit" disabled={actionLoading} className="flex-1 py-2 text-xs font-black text-brand-dark bg-brand-gold hover:opacity-90 rounded-lg transition cursor-pointer uppercase tracking-wider">
+                      {actionLoading ? '...' : 'Dodaj produkt'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Formularz zbiorczej dostawy */}
+          {canDeliver ? (
+            <form onSubmit={handleBulkDelivery} className="space-y-5">
+              {/* Nagłówek dostawy */}
+              <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-brand-gold" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-green-400" />
+                  Nowa dostawa zbiorcza
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Dostawca</label>
+                    <input
+                      type="text"
+                      placeholder="np. Makro, Allegro, Hurtownia..."
+                      value={bulkDelivery.supplier}
+                      onChange={e => setBulkDelivery(p => ({ ...p, supplier: e.target.value }))}
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Numer faktury / dokumentu</label>
+                    <input
+                      type="text"
+                      placeholder="np. FV/2026/08/948"
+                      value={bulkDelivery.documentNumber}
+                      onChange={e => setBulkDelivery(p => ({ ...p, documentNumber: e.target.value }))}
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Uwagi do całej dostawy</label>
+                    <input
+                      type="text"
+                      placeholder="Opcjonalne..."
+                      value={bulkDelivery.remarks}
+                      onChange={e => setBulkDelivery(p => ({ ...p, remarks: e.target.value }))}
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Koszyk pozycji dostawy */}
+              <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-3 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-gold to-yellow-400" />
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Pozycje dostawy
+                    <span className="ml-2 px-2 py-0.5 bg-brand-gold/20 text-brand-gold rounded-full text-[10px]">{bulkItems.filter(i => i.productId !== '').length} / {bulkItems.length}</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={addBulkItem}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-brand-gold border border-brand-gold/30 hover:bg-brand-gold/10 rounded-lg transition cursor-pointer"
                   >
-                    <option value="">-- Wybierz artykuł --</option>
-                    {products.filter(p => p.status === 'active').map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
-                    ))}
-                  </select>
+                    <Plus className="w-3 h-3" /> Dodaj pozycję
+                  </button>
                 </div>
 
-                {showDeliverModal && (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Ilość przyjęta</label>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="any"
-                          required
-                          value={deliverForm.quantity}
-                          onChange={e => setDeliverForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
-                          className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Dostawca</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="np. Makro"
-                          value={deliverForm.supplier}
-                          onChange={e => setDeliverForm(prev => ({ ...prev, supplier: e.target.value }))}
-                          className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                        />
-                      </div>
-                    </div>
+                {/* Nagłówki kolumn */}
+                <div className="hidden sm:grid grid-cols-12 gap-2 text-[9px] font-extrabold text-[#555] uppercase tracking-wider pb-1 border-b border-white/5">
+                  <div className="col-span-5">Produkt</div>
+                  <div className="col-span-2 text-center">Ilość</div>
+                  <div className="col-span-2">Nr partii</div>
+                  <div className="col-span-2">Data ważności</div>
+                  <div className="col-span-1"></div>
+                </div>
 
-                    {products.find(p => p.id === showDeliverModal)?.hasExpiry && (
-                      <div className="grid grid-cols-2 gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-xl animate-fadeIn">
-                        <div>
-                          <label className="block text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-1.5">Numer Partii</label>
+                {/* Wiersze pozycji */}
+                <div className="space-y-2">
+                  {bulkItems.map((item, idx) => {
+                    const selectedProd = products.find(p => p.id === item.productId);
+                    return (
+                      <div key={item.uid} className="grid grid-cols-12 gap-2 items-start p-2 rounded-xl bg-white/2 hover:bg-white/[0.03] transition border border-white/5">
+                        {/* Produkt */}
+                        <div className="col-span-12 sm:col-span-5">
+                          <div className="flex gap-1.5">
+                            <select
+                              value={item.productId}
+                              onChange={e => {
+                                const val = e.target.value;
+                                if (val === '__new__') {
+                                  setQuickAddTargetUid(item.uid);
+                                  setQuickAddProduct(true);
+                                } else {
+                                  updateBulkItem(item.uid, 'productId', val === '' ? '' : Number(val));
+                                }
+                              }}
+                              className="flex-1 px-2 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                            >
+                              <option value="">-- Wybierz produkt --</option>
+                              {products.filter(p => p.status === 'active').map(p => (
+                                <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
+                              ))}
+                              <option value="__new__" className="text-brand-gold font-bold">➕ Dodaj nowy produkt...</option>
+                            </select>
+                          </div>
+                          {idx === 0 && <p className="text-[9px] text-[#444] mt-0.5">Wybierz lub dodaj nowy produkt</p>}
+                        </div>
+
+                        {/* Ilość */}
+                        <div className="col-span-4 sm:col-span-2">
+                          <input
+                            type="number" min="0.01" step="any" required={item.productId !== ''}
+                            value={item.quantity}
+                            onChange={e => updateBulkItem(item.uid, 'quantity', Number(e.target.value))}
+                            className="w-full px-2 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs text-center font-bold focus:outline-none focus:border-brand-gold transition"
+                          />
+                          {idx === 0 && <p className="text-[9px] text-[#444] mt-0.5 text-center">Ilość</p>}
+                        </div>
+
+                        {/* Nr partii */}
+                        <div className="col-span-4 sm:col-span-2">
                           <input
                             type="text"
-                            placeholder="np. LOT-4822"
-                            value={deliverForm.batchNumber}
-                            onChange={e => setDeliverForm(prev => ({ ...prev, batchNumber: e.target.value }))}
-                            className="w-full px-3 py-2 bg-[#141414] border border-orange-500/20 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500 transition"
+                            placeholder={selectedProd?.hasExpiry ? 'LOT-...' : '-'}
+                            disabled={!selectedProd?.hasExpiry}
+                            value={item.batchNumber}
+                            onChange={e => updateBulkItem(item.uid, 'batchNumber', e.target.value)}
+                            className="w-full px-2 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500 transition disabled:opacity-30 disabled:cursor-not-allowed"
                           />
+                          {idx === 0 && <p className="text-[9px] text-[#444] mt-0.5">Nr partii</p>}
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-1.5">Data ważności</label>
+
+                        {/* Data ważności */}
+                        <div className="col-span-3 sm:col-span-2">
                           <input
                             type="date"
-                            required
-                            value={deliverForm.expiryDate}
-                            onChange={e => setDeliverForm(prev => ({ ...prev, expiryDate: e.target.value }))}
-                            className="w-full px-3 py-2 bg-[#141414] border border-orange-500/20 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500 transition"
+                            disabled={!selectedProd?.hasExpiry}
+                            required={!!selectedProd?.hasExpiry}
+                            value={item.expiryDate}
+                            onChange={e => updateBulkItem(item.uid, 'expiryDate', e.target.value)}
+                            className="w-full px-2 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500 transition disabled:opacity-30 disabled:cursor-not-allowed"
                           />
+                          {idx === 0 && <p className="text-[9px] text-[#444] mt-0.5">Data ważności</p>}
+                        </div>
+
+                        {/* Usuń */}
+                        <div className="col-span-1 sm:col-span-1 flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={() => removeBulkItem(item.uid)}
+                            disabled={bulkItems.length === 1}
+                            className="p-1.5 text-[#444] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
 
-                    <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Numer faktury / Dokumentu</label>
-                        <input
-                          type="text"
-                          placeholder="np. FV/2026/08/948"
-                          value={deliverForm.documentNumber}
-                          onChange={e => setDeliverForm(prev => ({ ...prev, documentNumber: e.target.value }))}
-                          className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Uwagi do przyjęcia</label>
-                        <textarea
-                          placeholder="Dodatkowe informacje..."
-                          value={deliverForm.remarks}
-                          onChange={e => setDeliverForm(prev => ({ ...prev, remarks: e.target.value }))}
-                          rows={2}
-                          className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                        />
-                      </div>
+                {/* Podsumowanie koszyka */}
+                {bulkItems.some(i => i.productId !== '') && (
+                  <div className="mt-2 p-3 bg-brand-gold/5 border border-brand-gold/20 rounded-xl">
+                    <p className="text-[10px] font-bold text-brand-gold uppercase tracking-wider mb-1">Podsumowanie dostawy:</p>
+                    <div className="space-y-1">
+                      {bulkItems.filter(i => i.productId !== '').map(i => {
+                        const p = products.find(pr => pr.id === i.productId);
+                        return p ? (
+                          <div key={i.uid} className="flex justify-between text-[11px] text-[#a0a0a0]">
+                            <span className="font-semibold text-white">{p.name}</span>
+                            <span className="font-black text-green-400">+{i.quantity} {p.unit}</span>
+                          </div>
+                        ) : null;
+                      })}
                     </div>
-
-                    {/* Pole zdjęcia faktury */}
-                    <div className={`p-3 rounded-xl border ${deliverFile ? 'border-green-500/30 bg-green-500/5' : deliverFileWarning ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/10 bg-white/2'} transition-all`}>
-                      <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 ${deliverFile ? 'text-green-400' : deliverFileWarning ? 'text-amber-400' : 'text-[#888]'}`}>
-                        {deliverFile ? '✅ Zdjęcie faktury / paragonu dołączone' : '📷 Zdjęcie faktury / paragonu (zalecane)'}
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*,application/pdf"
-                        onChange={e => {
-                          const f = e.target.files?.[0] || null;
-                          setDeliverFile(f);
-                          if (f) setDeliverFileWarning(false);
-                        }}
-                        className="w-full text-xs text-[#a0a0a0] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-gold/20 file:text-brand-gold hover:file:bg-brand-gold/30 file:cursor-pointer cursor-pointer"
-                      />
-                      {deliverFile && (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-green-400">
-                          <CheckCircle className="w-3 h-3" />
-                          <span>{deliverFile.name} ({(deliverFile.size / 1024).toFixed(0)} KB)</span>
-                        </div>
-                      )}
-                      {!deliverFile && deliverFileWarning && (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-400">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>Brak zdjęcia — wymagane potwierdzenie przy wysyłce</span>
-                        </div>
-                      )}
-                      {!deliverFile && !deliverFileWarning && (
-                        <p className="mt-1 text-[10px] text-[#555] italic">Dołącz zdjęcie lub skan faktury / paragonu przed zatwierdzeniem dostawy.</p>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={actionLoading}
-                      className="w-full py-2.5 bg-green-500 hover:bg-green-600 text-brand-dark font-black rounded-lg uppercase tracking-wider text-xs transition cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      {actionLoading ? 'Zapisywanie...' : 'Zatwierdź Przyjęcie dostawy'}
-                    </button>
-                  </>
+                  </div>
                 )}
-              </form>
-            ) : (
-              <p className="text-xs text-[#555] italic">Brak uprawnień do rejestrowania dostaw.</p>
-            )}
-          </div>
+              </div>
+
+              {/* Zdjęcie + Zatwierdź */}
+              <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4">
+                <div className={`p-3 rounded-xl border transition-all ${deliverFile ? 'border-green-500/30 bg-green-500/5' : deliverFileWarning ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/10'}`}>
+                  <label className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 ${deliverFile ? 'text-green-400' : deliverFileWarning ? 'text-amber-400' : 'text-[#888]'}`}>
+                    {deliverFile ? '✅ Zdjęcie faktury / paragonu dołączone' : '📷 Zdjęcie faktury / paragonu (zalecane)'}
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={e => { const f = e.target.files?.[0] || null; setDeliverFile(f); if (f) setDeliverFileWarning(false); }}
+                    className="w-full text-xs text-[#a0a0a0] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-brand-gold/20 file:text-brand-gold hover:file:bg-brand-gold/30 file:cursor-pointer cursor-pointer"
+                  />
+                  {deliverFile && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-green-400">
+                      <CheckCircle className="w-3 h-3" />
+                      <span>{deliverFile.name} ({(deliverFile.size / 1024).toFixed(0)} KB)</span>
+                    </div>
+                  )}
+                  {!deliverFile && deliverFileWarning && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-400">
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>Brak zdjęcia — wymagane potwierdzenie przy wysyłce</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={resetBulkDelivery}
+                    className="px-4 py-2.5 text-xs font-bold text-[#888] hover:text-white border border-white/10 rounded-lg transition cursor-pointer"
+                  >
+                    Wyczyść
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading || bulkItems.every(i => i.productId === '')}
+                    className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-brand-dark font-black rounded-lg uppercase tracking-wider text-xs transition cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {actionLoading ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-brand-dark" />
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Zatwierdź dostawę ({bulkItems.filter(i => i.productId !== '').length} poz.)
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : (
+            <p className="text-xs text-[#555] italic">Brak uprawnień do rejestrowania dostaw.</p>
+          )}
 
           {/* Rejestr historyczny dostaw */}
-          <div className="glass-card p-6 rounded-2xl border border-white/5 lg:col-span-2 space-y-4">
+          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Historia przyjęć dostaw</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -1272,6 +1482,13 @@ export default function WarehousePage() {
           </div>
         </div>
       )}
+
+
+
+
+      {/* ------------------------------------------------------------- */}
+      {/* KARTA: WYDANIA NA LOKALE                                      */}
+      {/* ------------------------------------------------------------- */}
 
       {/* ------------------------------------------------------------- */}
       {/* KARTA: WYDANIA NA LOKALE                                      */}
@@ -2058,109 +2275,9 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* MODAL: SZYBKA DOSTAWA (Z POZIOMU KATALOGU)                      */}
-      {/* ------------------------------------------------------------- */}
-      {showDeliverModal && activeTab === 'products' && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card max-w-md w-full bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 relative overflow-hidden animate-fadeIn">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-emerald-400" />
-            
-            <div className="flex justify-between items-center border-b border-white/5 pb-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                Przyjęcie dostawy: {products.find(p => p.id === showDeliverModal)?.name}
-              </h3>
-              <button 
-                onClick={() => setShowDeliverModal(null)}
-                className="p-1.5 bg-[#141414] hover:bg-[#222] rounded-lg text-white transition cursor-pointer border border-white/5"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* Stary modal dostawy z katalogu - przenosząca do zakładki Dostawy */}
+      {/* (showDeliverModal obsługiwany przez openDeliverModal - teraz przekierowanie do bulk) */}
 
-            <form onSubmit={handleDeliverProduct} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Ilość przyjęta</label>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="any"
-                    required
-                    value={deliverForm.quantity}
-                    onChange={e => setDeliverForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
-                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Dostawca</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="np. Makro"
-                    value={deliverForm.supplier}
-                    onChange={e => setDeliverForm(prev => ({ ...prev, supplier: e.target.value }))}
-                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                  />
-                </div>
-              </div>
-
-              {products.find(p => p.id === showDeliverModal)?.hasExpiry && (
-                <div className="grid grid-cols-2 gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                  <div>
-                    <label className="block text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-1.5">Numer Partii</label>
-                    <input
-                      type="text"
-                      placeholder="np. LOT-4822"
-                      value={deliverForm.batchNumber}
-                      onChange={e => setDeliverForm(prev => ({ ...prev, batchNumber: e.target.value }))}
-                      className="w-full px-3 py-2 bg-[#141414] border border-orange-500/20 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500 transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-1.5">Data ważności</label>
-                    <input
-                      type="date"
-                      required
-                      value={deliverForm.expiryDate}
-                      onChange={e => setDeliverForm(prev => ({ ...prev, expiryDate: e.target.value }))}
-                      className="w-full px-3 py-2 bg-[#141414] border border-orange-500/20 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500 transition"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Faktura / Uwagi</label>
-                <input
-                  type="text"
-                  placeholder="np. FV/2026/08/948"
-                  value={deliverForm.documentNumber}
-                  onChange={e => setDeliverForm(prev => ({ ...prev, documentNumber: e.target.value }))}
-                  className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
-                <button
-                  type="button"
-                  onClick={() => setShowDeliverModal(null)}
-                  className="px-4 py-2 bg-[#141414] hover:bg-[#222] border border-white/5 text-white text-xs font-bold rounded-lg uppercase tracking-wider cursor-pointer"
-                >
-                  Anuluj
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-5 py-2 bg-green-500 hover:bg-green-600 text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider transition cursor-pointer"
-                >
-                  Zatwierdź
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ------------------------------------------------------------- */}
       {/* MODAL: SZYBKIE WYDANIE (Z POZIOMU KATALOGU)                      */}
