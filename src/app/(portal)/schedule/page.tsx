@@ -181,10 +181,23 @@ export default function SchedulePage() {
         targetItem.eventUserIds || null,
         targetItem.openTime || null,
         targetItem.closeTime || null,
-        targetItem.isClosed || false
+        targetItem.isClosed || false,
+        targetItem.version
       );
       if (res.success) {
-        setStatusMsg({ type: 'success', text: `Zapisano zmiany w grafiku dla dnia ${dateStr}.` });
+        // Zwiększ wersję lokalnie w stanie po udanym zapisie
+        setScheduleList(prev => prev.map(item => {
+          if (item.date === dateStr) {
+            return { ...item, version: (item.version || 1) + 1 };
+          }
+          return item;
+        }));
+
+        if ((res as any).warnings && (res as any).warnings.length > 0) {
+          setStatusMsg({ type: 'warning', text: (res as any).warnings.join(' ') });
+        } else {
+          setStatusMsg({ type: 'success', text: `Zapisano zmiany w grafiku dla dnia ${dateStr}.` });
+        }
       } else {
         setStatusMsg({ type: 'error', text: res.error || 'Błąd zapisu w bazie danych.' });
       }

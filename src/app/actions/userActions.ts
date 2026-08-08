@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from "@/db";
-import { users, notifications } from "@/db/schema";
+import { users, notifications, auditLogs } from "@/db/schema";
 import { eq, ne, desc } from "drizzle-orm";
 import { auth } from "@/auth";
 
@@ -116,5 +116,27 @@ export async function getCurrentUserRateAction() {
     return { success: false, rate: 0 };
   } catch (e) {
     return { success: false, rate: 0 };
+  }
+}
+
+export async function logAuditEvent(
+  userId: number | null,
+  entityType: string,
+  entityId: number,
+  action: 'UPDATE' | 'DELETE' | 'INSERT',
+  oldValue: any,
+  newValue: any
+) {
+  try {
+    await db.insert(auditLogs).values({
+      userId,
+      entityType,
+      entityId,
+      action,
+      oldValue: oldValue ? JSON.stringify(oldValue) : null,
+      newValue: newValue ? JSON.stringify(newValue) : null,
+    });
+  } catch (e) {
+    console.error("[Audit Log Error] Failed to write audit log:", e);
   }
 }

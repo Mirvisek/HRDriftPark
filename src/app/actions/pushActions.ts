@@ -118,9 +118,11 @@ export async function sendCustomPushNotificationAction(
 
     if (userId === 0) {
       const allUsers = await db.select({ id: users.id }).from(users);
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       for (const u of allUsers) {
         await sendSystemNotification(u.id, message);
         await sendPushNotification(u.id, title, message, "/");
+        await delay(100);
       }
       console.log(`[Push Custom] Wysłano powiadomienie grupowe do wszystkich pracowników.`);
       return { success: true, count: allUsers.length };

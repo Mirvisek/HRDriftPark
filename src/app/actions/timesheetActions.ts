@@ -1,9 +1,10 @@
 'use server';
 
 import { db } from "@/db";
-import { timesheets, users } from "@/db/schema";
-import { eq, and, like } from "drizzle-orm";
+import { timesheets, users, salaryHistory } from "@/db/schema";
+import { eq, and, like, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
+import { logAuditEvent } from "./userActions";
 
 export interface TimesheetEntry {
   id?: number;
@@ -15,6 +16,7 @@ export interface TimesheetEntry {
   isLocked: boolean;
   userName?: string;
   position?: string;
+  version?: number;
 }
 
 // Sprawdzenie czy edycja jest zablokowana (ostatni dzień miesiąca o 22:00)
@@ -46,10 +48,46 @@ export async function getTimesheets(userId: number, year: number, month: number)
           like(timesheets.date, pattern)
         )
       );
-    return { success: true, data: results as TimesheetEntry[] };
+
+    // Pobierz historię stawek dla użytkownika
+    const userHistory = await db
+      .select()
+      .from(salaryHistory)
+      .where(eq(salaryHistory.userId, userId));
+
+    // Pobierz aktualną stawkę z tabeli users jako fallback
+    const userResult = await db
+      .select({ hourlyRate: users.hourlyRate })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    
+    const fallbackRate = userResult.length > 0 ? userResult[0].hourlyRate : 0;
+
+    let estimatedPayout = 0;
+    results.forEach(t => {
+      const [sh, sm] = t.startTime.split(':').map(Number);
+      const [eh, em] = t.endTime.split(':').map(Number);
+      const diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
+      if (diffSec <= 0) return;
+
+      const entryHours = diffSec / 3600;
+      // validFrom <= date oraz (validTo >= date lub validTo jest null)
+      const matchedRate = userHistory.find(h => {
+        return h.validFrom <= t.date && (!h.validTo || h.validTo >= t.date);
+      });
+      const rate = matchedRate ? matchedRate.hourlyRate : fallbackRate;
+      estimatedPayout += entryHours * rate;
+    });
+
+    return { 
+      success: true, 
+      data: results as TimesheetEntry[],
+      estimatedPayout: Math.round(estimatedPayout * 100) / 100
+    };
   } catch (e) {
     console.error("Błąd pobierania kart godzin:", e);
-    return { success: false, data: [], error: "Błąd bazy danych podczas pobierania kart godzin." };
+    return { success: false, data: [], estimatedPayout: 0, error: "Błąd bazy danych podczas pobierania kart godzin." };
   }
 }
 
@@ -59,15 +97,18 @@ export async function saveTimesheet(
   dateStr: string,
   startTime: string,
   endTime: string,
-  remarks: string | null
+  remarks: string | null,
+  clientVersion?: number
 ) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
   const userRole = (session.user as any).role;
+  const executorId = session.user ? Number((session.user as any).id) : null;
 
   // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
   const [targetYear, targetMonth] = dateStr.split('-').map(Number);
+  const dayNum = Number(dateStr.split('-')[2]);
 
   // Sprawdzanie blokady
   const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
@@ -77,26 +118,66 @@ export async function saveTimesheet(
 
   try {
     if (id) {
+      // Pobierz stary wpis do logowania audytu i weryfikacji wersji
+      const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
+      if (existing.length === 0) return { success: false, error: "Nie znaleziono wpisu." };
+
+      // WALIDACJA TWARDA (Hard check)
+      if (dayNum < 16 && (existing[0].isLocked || isLocked)) {
+        throw new Error("Modyfikacja zablokowana: edycja pierwszej połowy miesiąca jest zablokowana.");
+      }
+
+      // Optymistyczne blokowanie
+      if (clientVersion !== undefined && existing[0].version !== clientVersion) {
+        return { success: false, error: "Konflikt edycji: Ten wpis został zmodyfikowany przez innego użytkownika. Odśwież stronę." };
+      }
+
+      const nextVersion = existing[0].version + 1;
+
+      // Zapis logu audytu
+      await logAuditEvent(
+        executorId, 
+        'timesheet', 
+        id, 
+        'UPDATE', 
+        existing[0], 
+        { startTime, endTime, remarks, version: nextVersion }
+      );
+
       // Aktualizacja
       await db
         .update(timesheets)
-        .set({ startTime, endTime, remarks, isLocked: false })
-        .where(eq(timesheets.id, id));
+        .set({ startTime, endTime, remarks, version: nextVersion, isLocked: false })
+        .where(and(eq(timesheets.id, id), eq(timesheets.version, existing[0].version)));
     } else {
       // Wstawianie
-      await db.insert(timesheets).values({
+      const [insertResult] = await db.insert(timesheets).values({
         userId,
         date: dateStr,
         startTime,
         endTime,
         remarks,
         isLocked: false,
-        isDemo: false
+        isDemo: false,
+        version: 1
       });
+
+      const newId = (insertResult as any).insertId || 0;
+      await logAuditEvent(
+        executorId,
+        'timesheet',
+        newId,
+        'INSERT',
+        null,
+        { userId, date: dateStr, startTime, endTime, remarks, version: 1 }
+      );
     }
     return { success: true };
-  } catch (e) {
+  } catch (e: any) {
     console.error("Błąd zapisu karty godzin:", e);
+    if (e.message && e.message.includes("Modyfikacja zablokowana")) {
+      throw e;
+    }
     return { success: false, error: "Błąd zapisu w bazie danych." };
   }
 }
@@ -106,6 +187,7 @@ export async function deleteTimesheet(id: number) {
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
   const userRole = (session.user as any).role;
+  const executorId = session.user ? Number((session.user as any).id) : null;
 
   try {
     const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
@@ -113,16 +195,28 @@ export async function deleteTimesheet(id: number) {
 
     // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
     const [targetYear, targetMonth] = existing[0].date.split('-').map(Number);
+    const dayNum = Number(existing[0].date.split('-')[2]);
 
     const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
     if (isLocked) {
       return { success: false, error: "Edycja zablokowana." };
     }
 
+    // WALIDACJA TWARDA (Hard check)
+    if (dayNum < 16 && (existing[0].isLocked || isLocked)) {
+      throw new Error("Modyfikacja zablokowana: edycja pierwszej połowy miesiąca jest zablokowana.");
+    }
+
+    // Zapis logu audytu
+    await logAuditEvent(executorId, 'timesheet', id, 'DELETE', existing[0], null);
+
     await db.delete(timesheets).where(eq(timesheets.id, id));
     return { success: true };
-  } catch (e) {
+  } catch (e: any) {
     console.error("Błąd usuwania wpisu:", e);
+    if (e.message && e.message.includes("Modyfikacja zablokowana")) {
+      throw e;
+    }
     return { success: false, error: "Błąd serwera podczas usuwania wpisu." };
   }
 }
@@ -193,18 +287,37 @@ export async function getPayrollSummary(year: number, month: number) {
       .from(timesheets)
       .where(like(timesheets.date, pattern));
 
+    // Pobierz historię wszystkich stawek
+    const allSalaryHistory = await db.select().from(salaryHistory);
+
     // Wylicz sumę godzin i wypłatę
     const payrollData = allUsers.map(user => {
       const userSheets = allTimesheets.filter(t => t.userId === user.id);
+      const userHistory = allSalaryHistory.filter(h => h.userId === user.id);
+
       let totalSeconds = 0;
+      let totalPayout = 0;
+
       userSheets.forEach(t => {
         const [sh, sm] = t.startTime.split(':').map(Number);
         const [eh, em] = t.endTime.split(':').map(Number);
         const diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
-        if (diffSec > 0) totalSeconds += diffSec;
+        if (diffSec <= 0) return;
+
+        totalSeconds += diffSec;
+        const entryHours = diffSec / 3600;
+
+        // Znajdź stawkę ważną dla danej daty wpisu
+        const matchedRate = userHistory.find(h => {
+          return h.validFrom <= t.date && (!h.validTo || h.validTo >= t.date);
+        });
+
+        const rate = matchedRate ? matchedRate.hourlyRate : user.hourlyRate;
+        totalPayout += entryHours * rate;
       });
+
       const totalHours = Math.round((totalSeconds / 3600) * 100) / 100;
-      const payout = Math.round((totalHours * user.hourlyRate) * 100) / 100;
+      const payout = Math.round(totalPayout * 100) / 100;
 
       return {
         id: user.id,

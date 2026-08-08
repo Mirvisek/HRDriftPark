@@ -32,6 +32,7 @@ export default function TimesheetPage() {
   const [entries, setEntries] = useState<TimesheetEntry[]>([]);
   const [monthlySchedule, setMonthlySchedule] = useState<any[]>([]);
   const [userRate, setUserRate] = useState<number>(0);
+  const [estimatedPayout, setEstimatedPayout] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [simulatedLocked, setSimulatedLocked] = useState(false);
@@ -150,6 +151,7 @@ export default function TimesheetPage() {
     if (res.success) {
       setEntries(res.data);
       setConflicts(checkConflicts(res.data));
+      setEstimatedPayout((res as any).estimatedPayout || 0);
       setStatusMsg(null);
     } else {
       setEntries(localData);
@@ -217,7 +219,8 @@ export default function TimesheetPage() {
         formDate,
         formStart,
         formEnd,
-        formRemarks
+        formRemarks,
+        editingEntry.version
       );
 
       if (res.success) {
@@ -575,10 +578,10 @@ export default function TimesheetPage() {
               <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-green-500/20" />
               <h3 className="text-xs font-bold text-[#a0a0a0] uppercase tracking-wider">Szacowane Wynagrodzenie</h3>
               <div className="text-4xl font-black text-green-400 font-display tracking-tight">
-                {(Number(calculateTotalHours()) * userRate).toFixed(2)}<span className="text-white text-lg font-bold ml-1">PLN</span>
+                {estimatedPayout.toFixed(2)}<span className="text-white text-lg font-bold ml-1">PLN</span>
               </div>
               <p className="text-[10px] text-[#555]">
-                Wyliczone na podstawie Twojej stawki godzinowej: <span className="text-white font-semibold">{userRate} PLN/h</span>.
+                Wyliczone na podstawie Twoich stawek godzinowych w tym miesiącu (aktualna stawka: <span className="text-white font-semibold">{userRate} PLN/h</span>).
               </p>
             </div>
           )}

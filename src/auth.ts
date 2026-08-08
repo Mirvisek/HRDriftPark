@@ -1,7 +1,9 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { authConfig } from "./auth.config";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -15,7 +17,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         
         const { email, password } = credentials;
         
-        // Standardowa autoryzacja za pomocą bazy danych
         try {
           const { db } = await import("@/db");
           const { users } = await import("@/db/schema");
@@ -29,7 +30,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             if (isValid) {
               return {
                 id: String(user.id),
-                name: user.displayName, // Używamy displayName jako name w sesji
+                name: user.displayName,
                 email: user.email,
                 role: user.role,
                 position: user.position,
@@ -47,37 +48,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    jwt({ token, user }) {
-      if (user) {
-        token.role = (user as any).role;
-        token.position = (user as any).position;
-        token.isDemo = (user as any).isDemo;
-        token.mustChangePassword = (user as any).mustChangePassword;
-        token.rememberMe = (user as any).rememberMe;
-        
-        // Dynamiczne ustawienie czasu życia sesji w zależności od wyboru użytkownika
-        if (token.rememberMe === "true") {
-          token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 dni
-        } else {
-          token.exp = Math.floor(Date.now() / 1000) + 12 * 60 * 60; // 12 godzin (sesja krótka)
-        }
-      }
-      return token;
-    },
-    session({ session, token }) {
-      if (session.user) {
-        (session.user as any).id = token.sub;
-        (session.user as any).role = token.role;
-        (session.user as any).position = token.position;
-        (session.user as any).isDemo = token.isDemo;
-        (session.user as any).mustChangePassword = token.mustChangePassword;
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: "/login",
-  },
-  secret: process.env.NEXTAUTH_SECRET || "drift_park_extreme_secret_key_2026_nextauth_custom",
 });

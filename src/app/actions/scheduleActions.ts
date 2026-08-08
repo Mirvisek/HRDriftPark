@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { workSchedule, availability, users, settings } from "@/db/schema";
 import { eq, and, like } from "drizzle-orm";
 import { auth } from "@/auth";
-import { sendSystemNotification } from "./userActions";
+import { sendSystemNotification, logAuditEvent } from "./userActions";
 import { sendPushNotification, getFormattedNotification } from "@/lib/webPush";
 
 export interface ScheduleEntry {
@@ -20,6 +20,7 @@ export interface ScheduleEntry {
   openTime?: string | null;
   closeTime?: string | null;
   isClosed?: boolean;
+  version?: number;
 }
 
 export async function getWorkSchedule(year: number, month: number) {
@@ -39,6 +40,7 @@ export async function getWorkSchedule(year: number, month: number) {
         openTime: workSchedule.openTime,
         closeTime: workSchedule.closeTime,
         isClosed: workSchedule.isClosed,
+        version: workSchedule.version,
       })
       .from(workSchedule)
       .where(like(workSchedule.date, pattern));
@@ -61,6 +63,99 @@ export async function getWorkSchedule(year: number, month: number) {
   }
 }
 
+export async function checkRestPeriodViolation(
+  userId: number,
+  targetDateStr: string,
+  targetOpenTime: string | null,
+  targetCloseTime: string | null,
+  targetIsClosed: boolean
+) {
+  if (targetIsClosed) return null;
+
+  const getDefaultHours = (dStr: string) => {
+    const d = new Date(dStr);
+    const day = d.getDay();
+    if (day === 1) return { isClosed: true, open: '15:00', close: '20:00' };
+    if (day >= 2 && day <= 5) return { isClosed: false, open: '15:00', close: '20:00' };
+    return { isClosed: false, open: '12:00', close: '20:00' };
+  };
+
+  const parsedTargetOpen = targetOpenTime || getDefaultHours(targetDateStr).open;
+  const parsedTargetClose = targetCloseTime || getDefaultHours(targetDateStr).close;
+
+  // 1. Dzień poprzedni (X - 1)
+  const prevDate = new Date(targetDateStr);
+  prevDate.setDate(prevDate.getDate() - 1);
+  const prevDateStr = prevDate.toISOString().split('T')[0];
+
+  const prevShift = await db
+    .select()
+    .from(workSchedule)
+    .where(eq(workSchedule.date, prevDateStr))
+    .limit(1);
+
+  if (prevShift.length > 0 && !prevShift[0].isClosed) {
+    const isLead = prevShift[0].leadUserId === userId;
+    const isSupport = prevShift[0].supportUserId === userId;
+    const isEvent = prevShift[0].eventUserIds && prevShift[0].eventUserIds.split(',').map(Number).includes(userId);
+
+    if (isLead || isSupport || isEvent) {
+      const prevClose = prevShift[0].closeTime || getDefaultHours(prevDateStr).close;
+      
+      const [cHour, cMin] = prevClose.split(':').map(Number);
+      const [oHour, oMin] = parsedTargetOpen.split(':').map(Number);
+
+      const restHours = (24 - (cHour + cMin / 60)) + (oHour + oMin / 60);
+      if (restHours < 11) {
+        return {
+          type: 'prev',
+          date: prevDateStr,
+          closeTime: prevClose,
+          openTime: parsedTargetOpen,
+          restHours: Math.round(restHours * 10) / 10
+        };
+      }
+    }
+  }
+
+  // 2. Dzień następny (X + 1)
+  const nextDate = new Date(targetDateStr);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const nextDateStr = nextDate.toISOString().split('T')[0];
+
+  const nextShift = await db
+    .select()
+    .from(workSchedule)
+    .where(eq(workSchedule.date, nextDateStr))
+    .limit(1);
+
+  if (nextShift.length > 0 && !nextShift[0].isClosed) {
+    const isLead = nextShift[0].leadUserId === userId;
+    const isSupport = nextShift[0].supportUserId === userId;
+    const isEvent = nextShift[0].eventUserIds && nextShift[0].eventUserIds.split(',').map(Number).includes(userId);
+
+    if (isLead || isSupport || isEvent) {
+      const nextOpen = nextShift[0].openTime || getDefaultHours(nextDateStr).open;
+      
+      const [cHour, cMin] = parsedTargetClose.split(':').map(Number);
+      const [oHour, oMin] = nextOpen.split(':').map(Number);
+
+      const restHours = (24 - (cHour + cMin / 60)) + (oHour + oMin / 60);
+      if (restHours < 11) {
+        return {
+          type: 'next',
+          date: nextDateStr,
+          closeTime: parsedTargetClose,
+          openTime: nextOpen,
+          restHours: Math.round(restHours * 10) / 10
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function saveWorkScheduleEntry(
   dateStr: string,
   leadUserId: number | null,
@@ -70,7 +165,8 @@ export async function saveWorkScheduleEntry(
   eventUserIds: string | null = null,
   openTime: string | null = null,
   closeTime: string | null = null,
-  isClosed: boolean = false
+  isClosed: boolean = false,
+  clientVersion?: number
 ) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
@@ -80,6 +176,8 @@ export async function saveWorkScheduleEntry(
     return { success: false, error: "Brak uprawnień do edycji grafiku." };
   }
 
+  const executorId = session.user ? Number((session.user as any).id) : null;
+
   try {
     // Sprawdź czy wpis już istnieje
     const existing = await db
@@ -88,7 +186,23 @@ export async function saveWorkScheduleEntry(
       .where(eq(workSchedule.date, dateStr))
       .limit(1);
 
+    // Optymistyczne blokowanie i logowanie
     if (existing.length > 0) {
+      if (clientVersion !== undefined && existing[0].version !== clientVersion) {
+        return { success: false, error: "Konflikt edycji: Grafik został zmodyfikowany przez innego menedżera. Odśwież stronę." };
+      }
+
+      const nextVersion = existing[0].version + 1;
+      
+      await logAuditEvent(
+        executorId, 
+        'work_schedule', 
+        existing[0].id, 
+        'UPDATE', 
+        existing[0], 
+        { leadUserId, supportUserId, remarks, eventRemarks, eventUserIds, openTime, closeTime, isClosed, version: nextVersion }
+      );
+
       await db
         .update(workSchedule)
         .set({ 
@@ -100,11 +214,12 @@ export async function saveWorkScheduleEntry(
           openTime,
           closeTime,
           isClosed,
+          version: nextVersion,
           updatedAt: new Date() 
         })
-        .where(eq(workSchedule.id, existing[0].id));
+        .where(and(eq(workSchedule.id, existing[0].id), eq(workSchedule.version, existing[0].version)));
     } else {
-      await db.insert(workSchedule).values({
+      const [insertResult] = await db.insert(workSchedule).values({
         date: dateStr,
         leadUserId,
         supportUserId,
@@ -114,9 +229,39 @@ export async function saveWorkScheduleEntry(
         openTime,
         closeTime,
         isClosed,
-        isDemo: false
+        isDemo: false,
+        version: 1
       });
+
+      const newId = (insertResult as any).insertId || 0;
+      await logAuditEvent(
+        executorId,
+        'work_schedule',
+        newId,
+        'INSERT',
+        null,
+        { date: dateStr, leadUserId, supportUserId, remarks, eventRemarks, eventUserIds, openTime, closeTime, isClosed, version: 1 }
+      );
     }
+
+    // Sprawdzenie 11h odpoczynku dobowego (Generowanie Ostrzeżeń)
+    const warnings: string[] = [];
+    
+    const checkUserViolation = async (uId: number, roleName: string) => {
+      const violation = await checkRestPeriodViolation(uId, dateStr, openTime, closeTime, isClosed);
+      if (violation) {
+        const u = await db.select({ name: users.displayName }).from(users).where(eq(users.id, uId)).limit(1);
+        const name = u.length > 0 ? u[0].name : `Użytkownik ID ${uId}`;
+        if (violation.type === 'prev') {
+          warnings.push(`Ostrzeżenie (Kodeks Pracy): ${name} (${roleName}) ma tylko ${violation.restHours}h odpoczynku między dyżurami (koniec ${violation.date} o ${violation.closeTime}, start ${dateStr} o ${violation.openTime}).`);
+        } else {
+          warnings.push(`Ostrzeżenie (Kodeks Pracy): ${name} (${roleName}) ma tylko ${violation.restHours}h odpoczynku między dyżurami (koniec ${dateStr} o ${violation.closeTime}, start ${violation.date} o ${violation.openTime}).`);
+        }
+      }
+    };
+
+    if (leadUserId) await checkUserViolation(leadUserId, 'Prowadzący');
+    if (supportUserId) await checkUserViolation(supportUserId, 'Wspomagający');
 
     // Sprawdź czy grafik na ten miesiąc jest już opublikowany. Jeśli nie, nie wysyłamy żadnych powiadomień.
     const [yStr, mStr] = dateStr.split('-');
@@ -187,7 +332,7 @@ export async function saveWorkScheduleEntry(
       }
     }
 
-    return { success: true };
+    return { success: true, warnings: warnings.length > 0 ? warnings : undefined };
   } catch (e) {
     console.error("Błąd zapisu wpisu grafiku:", e);
     return { success: false, error: "Błąd bazy danych" };
@@ -377,9 +522,11 @@ export async function publishScheduleAction(year: number, month: number) {
       .select({ id: users.id })
       .from(users);
 
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     for (const user of allUsers) {
       await sendSystemNotification(user.id, message);
       await sendPushNotification(user.id, "Grafik opublikowany 📅", message, "/schedule");
+      await delay(100);
     }
 
     return { success: true };

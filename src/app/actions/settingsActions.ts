@@ -1,8 +1,8 @@
 'use server';
 
 import { db } from "@/db";
-import { users, settings } from "@/db/schema";
-import { eq, ne } from "drizzle-orm";
+import { users, settings, salaryHistory } from "@/db/schema";
+import { eq, ne, and, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
 import { sendMail, getSetting } from "@/lib/mail";
@@ -159,7 +159,25 @@ export async function createUserAction(userData: {
       isDemo: false
     });
 
-    console.log(`[Settings] Utworzono konto dla ${email} z hasłem tymczasowym: ${tempPassword}`);
+    // Pobierz utworzonego użytkownika, by uzyskać jego ID i zapisać stawkę początkową
+    const dbUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email.trim().toLowerCase()))
+      .limit(1);
+
+    if (dbUsers.length > 0) {
+      const createdUserId = dbUsers[0].id;
+      const todayStr = new Date().toISOString().split('T')[0];
+      await db.insert(salaryHistory).values({
+        userId: createdUserId,
+        hourlyRate: hourlyRate || 0,
+        validFrom: todayStr,
+        validTo: null
+      });
+    }
+
+    console.log(`[Settings] Utworzono konto dla ${email} z hasłem tymczasowym: ${tempPassword} oraz dodano stawkę początkową do historii.`);
 
     // Pobieranie adresu URL strony do linku w e-mailu
     const baseUrl = await getSetting('site_url', process.env.NEXTAUTH_URL || "http://localhost:3000");
@@ -273,12 +291,41 @@ export async function updateUserRateAction(userId: number, rate: number) {
   if (rate < 0) return { success: false, error: "Stawka nie może być ujemna." };
 
   try {
+    // 1. Zaktualizuj stawkę w tabeli users (fallback)
     await db
       .update(users)
       .set({ hourlyRate: rate })
       .where(eq(users.id, userId));
     
-    console.log(`[Settings] Zaktualizowano stawkę użytkownika ID: ${userId} na: ${rate} PLN/h`);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // 2. Zamknij obecnie aktywną stawkę w salary_history (validTo = wczoraj)
+    const activeRate = await db
+      .select()
+      .from(salaryHistory)
+      .where(and(eq(salaryHistory.userId, userId), isNull(salaryHistory.validTo)))
+      .limit(1);
+
+    if (activeRate.length > 0) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      await db
+        .update(salaryHistory)
+        .set({ validTo: yesterdayStr })
+        .where(eq(salaryHistory.id, activeRate[0].id));
+    }
+
+    // 3. Wstaw nową stawkę w salary_history zaczynającą się od dzisiaj
+    await db.insert(salaryHistory).values({
+      userId,
+      hourlyRate: rate,
+      validFrom: todayStr,
+      validTo: null
+    });
+    
+    console.log(`[Settings] Zaktualizowano stawkę użytkownika ID: ${userId} na: ${rate} PLN/h oraz zaktualizowano historię.`);
     return { success: true };
   } catch (e: any) {
     console.error("Błąd podczas aktualizacji stawki:", e);

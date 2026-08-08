@@ -41,6 +41,7 @@ export const workSchedule = mysqlTable('work_schedule', {
   closeTime: varchar('close_time', { length: 5 }), // Godzina zamknięcia, np. "20:00"
   isClosed: boolean('is_closed').notNull().default(false), // Czy lokal zamknięty
   isDemo: boolean('is_demo').notNull().default(false),
+  version: int('version').notNull().default(1), // Optymistyczne blokowanie
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
 });
 
@@ -53,6 +54,7 @@ export const timesheets = mysqlTable('timesheets', {
   remarks: text('remarks'),
   isLocked: boolean('is_locked').notNull().default(false),
   isDemo: boolean('is_demo').notNull().default(false),
+  version: int('version').notNull().default(1), // Optymistyczne blokowanie
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -99,6 +101,26 @@ export const shiftTasks = mysqlTable('shift_tasks', {
   completedByName: varchar('completed_by_name', { length: 255 }),
   completedAt: timestamp('completed_at'),
   isDemo: boolean('is_demo').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const auditLogs = mysqlTable('audit_logs', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id'), // Kto dokonał zmiany
+  entityType: varchar('entity_type', { length: 255 }).notNull(), // np. 'timesheet', 'work_schedule'
+  entityId: int('entity_id').notNull(),
+  action: varchar('action', { length: 50 }).notNull(), // UPDATE, DELETE
+  oldValue: text('old_value'), // JSON
+  newValue: text('new_value'), // JSON
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const salaryHistory = mysqlTable('salary_history', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull(),
+  hourlyRate: int('hourly_rate').notNull(),
+  validFrom: date('valid_from', { mode: 'string' }).notNull(), // Data rozpoczęcia
+  validTo: date('valid_to', { mode: 'string' }), // Data zakończenia (null oznacza wciąż aktywną)
   createdAt: timestamp('created_at').defaultNow(),
 });
 
