@@ -34,6 +34,14 @@ interface NavigationProps {
 export function Navigation({ user }: NavigationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
+  const isWorkTimeActive = pathname === "/availability" || pathname === "/schedule" || pathname === "/timesheet" || pathname === "/worktime";
+  const [workTimeOpen, setWorkTimeOpen] = useState(false);
+
+  useEffect(() => {
+    if (isWorkTimeActive) {
+      setWorkTimeOpen(true);
+    }
+  }, [pathname, isWorkTimeActive]);
 
   const role = user.role;
   const isManagerOrOwner = role === "manager" || role === "owner" || role === "technik";
@@ -83,21 +91,6 @@ export function Navigation({ user }: NavigationProps) {
 
   const navLinks = [
     {
-      href: "/availability",
-      label: "Dyspozycyjność",
-      icon: CalendarDays,
-    },
-    {
-      href: "/schedule",
-      label: "Grafik Pracy",
-      icon: Calendar,
-    },
-    {
-      href: "/timesheet",
-      label: "Karta Godzin",
-      icon: Clock,
-    },
-    {
       href: "/tasks",
       label: "Zadania",
       icon: ClipboardList,
@@ -132,6 +125,74 @@ export function Navigation({ user }: NavigationProps) {
 
           {/* Menu Links */}
           <nav className="space-y-1">
+            {/* Czas pracy - Dropdown Parent */}
+            <div className="mb-2">
+              <div className="flex items-center justify-between">
+                <Link
+                  href="/worktime"
+                  className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-l-lg text-sm font-medium transition duration-200 ${
+                    isWorkTimeActive
+                      ? "bg-[#1a1a1a] text-brand-gold border-l-2 border-brand-gold font-semibold"
+                      : "text-[#a0a0a0] hover:bg-[#1a1a1a]/50 hover:text-brand-gold"
+                  }`}
+                >
+                  <Clock className={`w-4 h-4 ${isWorkTimeActive ? "text-brand-gold" : "text-[#888]"}`} />
+                  <span>Czas pracy</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setWorkTimeOpen(!workTimeOpen)}
+                  className={`px-3 py-3 rounded-r-lg bg-[#0a0a0a] text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/50 transition duration-200 border-l border-white/5 cursor-pointer flex items-center self-stretch ${
+                    isWorkTimeActive ? "bg-[#1a1a1a]" : ""
+                  }`}
+                  title="Rozwiń menu"
+                >
+                  <span className={`transform transition-transform duration-200 text-[8px] font-black ${workTimeOpen ? "rotate-180" : ""}`}>
+                    ▼
+                  </span>
+                </button>
+              </div>
+
+              {/* Dropdown Children */}
+              {workTimeOpen && (
+                <div className="pl-6 mt-1 space-y-1 border-l border-white/5 ml-6 animate-fadeIn">
+                  <Link
+                    href="/availability"
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition duration-200 ${
+                      pathname === "/availability"
+                        ? "text-brand-gold font-bold bg-[#1a1a1a]/20"
+                        : "text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/10"
+                    }`}
+                  >
+                    <CalendarDays className="w-3.5 h-3.5" />
+                    <span>Dyspozycyjność</span>
+                  </Link>
+                  <Link
+                    href="/schedule"
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition duration-200 ${
+                      pathname === "/schedule"
+                        ? "text-brand-gold font-bold bg-[#1a1a1a]/20"
+                        : "text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/10"
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Grafik Pracy</span>
+                  </Link>
+                  <Link
+                    href="/timesheet"
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition duration-200 ${
+                      pathname === "/timesheet"
+                        ? "text-brand-gold font-bold bg-[#1a1a1a]/20"
+                        : "text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/10"
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Karta Godzin</span>
+                  </Link>
+                </div>
+              )}
+            </div>
+
             {navLinks.map((link) => {
               const Icon = link.icon;
               const isActive = pathname === link.href;
@@ -399,6 +460,78 @@ export function Navigation({ user }: NavigationProps) {
             
             {/* Mobile Nav Links */}
             <nav className="space-y-2">
+              {/* Mobile Czas pracy - Dropdown Parent */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between">
+                  <Link
+                    href="/worktime"
+                    onClick={() => setIsOpen(false)}
+                    className={`flex-1 flex items-center gap-4 px-4 py-3.5 rounded-l-xl text-md font-semibold transition ${
+                      isWorkTimeActive
+                        ? "bg-[#1a1a1a] text-brand-gold border-l-4 border-brand-gold font-semibold"
+                        : "text-[#a0a0a0] hover:bg-[#1a1a1a]/40 hover:text-brand-gold"
+                    }`}
+                  >
+                    <Clock className={`w-5 h-5 ${isWorkTimeActive ? "text-brand-gold" : "text-[#666]"}`} />
+                    <span>Czas pracy</span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setWorkTimeOpen(!workTimeOpen)}
+                    className={`px-4 py-3.5 rounded-r-xl bg-[#0a0a0a] text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/40 transition border-l border-white/5 cursor-pointer flex items-center self-stretch ${
+                      isWorkTimeActive ? "bg-[#1a1a1a]" : ""
+                    }`}
+                    title="Rozwiń menu"
+                  >
+                    <span className={`transform transition-transform duration-200 text-xs font-black ${workTimeOpen ? "rotate-180" : ""}`}>
+                      ▼
+                    </span>
+                  </button>
+                </div>
+
+                {/* Dropdown Children */}
+                {workTimeOpen && (
+                  <div className="pl-6 mt-1.5 space-y-1.5 border-l border-white/5 ml-6 animate-fadeIn">
+                    <Link
+                      href="/availability"
+                      onClick={() => setIsOpen(false)}
+                      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
+                        pathname === "/availability"
+                          ? "text-brand-gold font-bold bg-[#1a1a1a]/20"
+                          : "text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/10"
+                      }`}
+                    >
+                      <CalendarDays className="w-4 h-4" />
+                      <span>Dyspozycyjność</span>
+                    </Link>
+                    <Link
+                      href="/schedule"
+                      onClick={() => setIsOpen(false)}
+                      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
+                        pathname === "/schedule"
+                          ? "text-brand-gold font-bold bg-[#1a1a1a]/20"
+                          : "text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/10"
+                      }`}
+                    >
+                      <Calendar className="w-4 h-4" />
+                      <span>Grafik Pracy</span>
+                    </Link>
+                    <Link
+                      href="/timesheet"
+                      onClick={() => setIsOpen(false)}
+                      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
+                        pathname === "/timesheet"
+                          ? "text-brand-gold font-bold bg-[#1a1a1a]/20"
+                          : "text-[#888] hover:text-brand-gold hover:bg-[#1a1a1a]/10"
+                      }`}
+                    >
+                      <Clock className="w-4 h-4" />
+                      <span>Karta Godzin</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
+
               {navLinks.map((link) => {
                 const Icon = link.icon;
                 const isActive = pathname === link.href;
