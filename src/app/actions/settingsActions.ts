@@ -332,3 +332,130 @@ export async function updateUserRateAction(userId: number, rate: number) {
     return { success: false, error: "Błąd bazy danych przy aktualizacji stawki." };
   }
 }
+
+export async function updateUserAction(
+  userId: number,
+  userData: {
+    firstName: string;
+    lastName: string;
+    displayName: string;
+    email: string;
+    role: 'owner' | 'manager' | 'employee' | 'technik';
+    position: string;
+    birthDate: string;
+  }
+) {
+  const session = await checkAuth();
+  const { firstName, lastName, displayName, email, role, position, birthDate } = userData;
+
+  if (!firstName || !lastName || !displayName || !email || !role || !position || !birthDate) {
+    return { success: false, error: "Wszystkie pola są wymagane." };
+  }
+
+  try {
+    // Sprawdzenie unikalności e-maila (z wyłączeniem obecnego użytkownika)
+    const existing = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, email.trim()), ne(users.id, userId)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return { success: false, error: "Inny użytkownik o podanym adresie e-mail już istnieje." };
+    }
+
+    await db
+      .update(users)
+      .set({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        displayName: displayName.trim(),
+        email: email.trim().toLowerCase(),
+        role,
+        position: position.trim(),
+        birthDate: birthDate.trim()
+      })
+      .where(eq(users.id, userId));
+
+    console.log(`[Settings] Zaktualizowano konto ID: ${userId} (${email}) przez ${session.user?.name}`);
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd podczas aktualizacji użytkownika:", e);
+    return { success: false, error: "Błąd bazy danych przy aktualizacji użytkownika." };
+  }
+}
+
+export async function resetUserPasswordAction(userId: number) {
+  const session = await checkAuth();
+
+  try {
+    const userResult = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userResult.length === 0) {
+      return { success: false, error: "Nie znaleziono użytkownika." };
+    }
+
+    const targetUser = userResult[0];
+
+    // Generowanie nowego hasła tymczasowego
+    const tempPassword = Math.random().toString(36).substring(2, 12);
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    // Zapis w bazie
+    await db
+      .update(users)
+      .set({
+        password: hashedPassword,
+        mustChangePassword: true
+      })
+      .where(eq(users.id, userId));
+
+    console.log(`[Settings] Zresetowano hasło dla ${targetUser.email} przez ${session.user?.name}`);
+
+    // Próba wysłania e-maila informacyjnego (jeśli konfiguracja SMTP jest poprawna)
+    try {
+      const baseUrl = await getSetting('site_url', process.env.NEXTAUTH_URL || "http://localhost:3000");
+      const emailHtml = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #0f0f0f; color: #e0e0e0; border-radius: 10px; border: 1px solid #ffaa00;">
+          <h2 style="color: #ffd700; border-bottom: 1px solid #333; padding-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">Drift Park Extreme</h2>
+          <p style="font-size: 16px;">Witaj, <strong>${targetUser.displayName}</strong>!</p>
+          <p style="font-size: 14px; line-height: 1.6; color: #a0a0a0;">
+            Twoje hasło do konta zostało zresetowane przez administratora (${session.user?.name}).
+          </p>
+          <div style="background-color: #161616; padding: 15px; border-radius: 8px; border-left: 4px solid #ffaa00; margin: 20px 0;">
+            <p style="margin: 0 0 8px 0; font-size: 13px; color: #888;">Nowe dane do logowania:</p>
+            <p style="margin: 0 0 6px 0; font-size: 14px; color: #fff;"><strong>Login (E-mail):</strong> ${targetUser.email}</p>
+            <p style="margin: 0; font-size: 14px; color: #fff;"><strong>Hasło tymczasowe:</strong> <span style="font-family: monospace; font-size: 15px; color: #ffd700; background: #000; padding: 2px 6px; border-radius: 4px;">${tempPassword}</span></p>
+          </div>
+          <p style="font-size: 14px; line-height: 1.6; color: #a0a0a0;">
+            <strong>Uwaga:</strong> Przy kolejnym logowaniu system będzie wymagał od Ciebie natychmiastowej zmiany tego hasła tymczasowego na własne.
+          </p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${baseUrl}/login" style="background-color: #ffaa00; color: #0f0f0f; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; text-transform: uppercase; font-size: 14px; box-shadow: 0 4px 12px rgba(255, 170, 0, 0.2);">Przejdź do logowania</a>
+          </div>
+          <p style="font-size: 11px; color: #555; border-top: 1px solid #222; padding-top: 15px;">
+            Ta wiadomość została wygenerowana automatycznie.<br/>
+            Panel: <a href="${baseUrl}/login" style="color: #ffaa00; text-decoration: underline;">${baseUrl}/login</a>
+          </p>
+        </div>
+      `;
+
+      await sendMail({
+        to: targetUser.email,
+        subject: "Drift Park Extreme - Reset hasła",
+        html: emailHtml
+      });
+    } catch (mailError) {
+      console.warn("[Reset Password Mail Warning] Nie udało się wysłać maila, ale hasło zostało zresetowane w bazie.", mailError);
+    }
+
+    return { success: true, tempPassword };
+  } catch (e: any) {
+    console.error("Błąd podczas resetu hasła:", e);
+    return { success: false, error: "Błąd bazy danych przy resetowaniu hasła." };
+  }
+}

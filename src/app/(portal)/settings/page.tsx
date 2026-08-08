@@ -19,7 +19,9 @@ import {
   EyeOff,
   Plus,
   X,
-  ClipboardList
+  ClipboardList,
+  Edit,
+  KeyRound
 } from 'lucide-react';
 import { 
   getSettingsAction, 
@@ -28,7 +30,9 @@ import {
   createUserAction, 
   deleteUserAction,
   testSmtpConnectionAction,
-  updateUserRateAction
+  updateUserRateAction,
+  updateUserAction,
+  resetUserPasswordAction
 } from '@/app/actions/settingsActions';
 import { 
   getTaskTemplatesAction, 
@@ -48,6 +52,7 @@ export default function SettingsPage() {
   // Dane użytkowników
   const [usersList, setUsersList] = useState<any[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
   const [newUser, setNewUser] = useState({
     firstName: '',
     lastName: '',
@@ -176,6 +181,71 @@ export default function SettingsPage() {
         if (usersRes.success) setUsersList(usersRes.users || []);
       } else {
         setStatusMsg({ type: 'error', text: res.error || 'Błąd podczas usuwania użytkownika.' });
+      }
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    } finally {
+      setActionLoading(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleResetPassword = async (id: number, displayName: string) => {
+    if (!confirm(`Czy na pewno chcesz zresetować hasło dla użytkownika ${displayName}? System wygeneruje nowe hasło tymczasowe.`)) {
+      return;
+    }
+
+    setStatusMsg(null);
+    setActionLoading(true);
+    try {
+      const res = await resetUserPasswordAction(id);
+      if (res.success) {
+        setStatusMsg({ 
+          type: 'success', 
+          text: `Zresetowano hasło dla ${displayName}. Nowe hasło tymczasowe to: ${res.tempPassword}. Przekaż je użytkownikowi lub poczekaj na wysyłkę e-mail.` 
+        });
+      } else {
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd resetowania hasła.' });
+      }
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Błąd połączenia z serwerem.' });
+    } finally {
+      setActionLoading(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleStartEdit = (user: any) => {
+    setEditingUser({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      displayName: user.displayName,
+      email: user.email,
+      role: user.role,
+      position: user.position,
+      birthDate: user.birthDate,
+    });
+    setShowAddForm(false); // Zamknij form dodawania, jeśli otwarty
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setStatusMsg(null);
+    setActionLoading(true);
+
+    try {
+      const res = await updateUserAction(editingUser.id, editingUser);
+      if (res.success) {
+        setStatusMsg({ type: 'success', text: `Zaktualizowano dane użytkownika ${editingUser.displayName}.` });
+        setEditingUser(null);
+        // Ponowne załadowanie listy
+        const usersRes = await getUsersAction();
+        if (usersRes.success) setUsersList(usersRes.users || []);
+      } else {
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd aktualizacji użytkownika.' });
       }
     } catch (err) {
       setStatusMsg({ type: 'error', text: 'Błąd połączenia z serwerem.' });
@@ -333,6 +403,114 @@ export default function SettingsPage() {
               <span>{showAddForm ? 'Anuluj' : 'Dodaj pracownika'}</span>
             </button>
           </div>
+
+          {/* Formularz edycji użytkownika */}
+          {editingUser && (
+            <div className="glass-card p-6 rounded-2xl border border-brand-gold/30 relative overflow-hidden animate-fadeIn">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-gold via-yellow-500 to-brand-gold" />
+              
+              <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider flex items-center gap-2">
+                <Edit className="w-4 h-4 text-brand-gold" />
+                <span>Edycja Profilu Pracownika: {editingUser.displayName}</span>
+              </h4>
+
+              <form onSubmit={handleUpdateUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Imię</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingUser.firstName}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, firstName: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Nazwisko</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingUser.lastName}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, lastName: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Nazwa Wyświetlana</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingUser.displayName}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, displayName: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Adres E-mail</label>
+                  <input
+                    type="email"
+                    required
+                    value={editingUser.email}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Rola w systemie</label>
+                  <select
+                    value={editingUser.role}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, role: e.target.value as any }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  >
+                    <option value="employee">Pracownik (Ewidencja, Grafik, Dyspozycja)</option>
+                    <option value="manager">Menedżer (Panel Menedżera, Akceptacje)</option>
+                    <option value="technik">Technik (Pełen dostęp + Ustawienia)</option>
+                    <option value="owner">Właściciel (Pełen dostęp + Ustawienia)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Stanowisko (Wyświetlane)</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingUser.position}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, position: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Data urodzenia (Weryfikacja)</label>
+                  <input
+                    type="date"
+                    required
+                    value={editingUser.birthDate}
+                    onChange={e => setEditingUser((prev: any) => ({ ...prev, birthDate: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                </div>
+                <div className="md:col-span-2 flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingUser(null)}
+                    className="px-4 py-2.5 bg-[#222] hover:bg-[#333] text-white text-xs font-bold rounded-lg uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Anuluj
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-6 py-2.5 bg-gradient-to-r from-brand-gold to-yellow-500 text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-95 transition cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {actionLoading ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-brand-dark"></div>
+                    ) : (
+                      'Zapisz zmiany'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Formularz dodawania użytkownika */}
           {showAddForm && (
@@ -531,10 +709,24 @@ export default function SettingsPage() {
                             </span>
                           )}
                         </td>
-                        <td className="p-4 text-right">
-                          {isSelf ? (
-                            <span className="text-[10px] text-[#555] italic">Twoje konto</span>
-                          ) : (
+                        <td className="p-4 text-right flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleStartEdit(u)}
+                            disabled={actionLoading}
+                            className="p-1.5 bg-white/5 border border-white/10 text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+                            title="Edytuj dane profilu"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleResetPassword(u.id, u.displayName)}
+                            disabled={actionLoading}
+                            className="p-1.5 bg-brand-gold/10 border border-brand-gold/20 text-brand-gold hover:bg-brand-gold/20 hover:border-brand-gold/30 rounded-lg transition cursor-pointer"
+                            title="Resetuj hasło"
+                          >
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                          {!isSelf && (
                             <button
                               onClick={() => handleDeleteUser(u.id, u.displayName)}
                               disabled={actionLoading}
@@ -543,6 +735,9 @@ export default function SettingsPage() {
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                          )}
+                          {isSelf && (
+                            <span className="text-[9px] text-[#555] italic uppercase tracking-wider font-bold">Ty</span>
                           )}
                         </td>
                       </tr>
