@@ -91,7 +91,7 @@ async function main() {
       CREATE TABLE IF NOT EXISTS \`salary_history\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
         \`user_id\` INT NOT NULL,
-        \`hourly_rate\` INT NOT NULL,
+        \`hourly_rate\` DOUBLE NOT NULL,
         \`valid_from\` DATE NOT NULL,
         \`valid_to\` DATE NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -100,6 +100,23 @@ async function main() {
     console.log("[✓] Tabela 'salary_history' gotowa.");
   } catch (e: any) {
     console.error("Błąd podczas tworzenia tabeli 'salary_history':", e.message);
+  }
+
+  // 4.5. Konwersja kolumn stawek na typ DOUBLE (aby wspierać ułamki np. 31.40)
+  try {
+    console.log("Konwertowanie kolumny 'hourly_rate' w tabeli 'users' na DOUBLE...");
+    await db.execute(sql.raw("ALTER TABLE `users` MODIFY COLUMN `hourly_rate` DOUBLE NOT NULL DEFAULT 0;"));
+    console.log("[✓] Konwersja 'users.hourly_rate' zakończona.");
+  } catch (e: any) {
+    console.error("Błąd konwersji 'users.hourly_rate':", e.message);
+  }
+
+  try {
+    console.log("Konwertowanie kolumny 'hourly_rate' w tabeli 'salary_history' na DOUBLE...");
+    await db.execute(sql.raw("ALTER TABLE `salary_history` MODIFY COLUMN `hourly_rate` DOUBLE NOT NULL;"));
+    console.log("[✓] Konwersja 'salary_history.hourly_rate' zakończona.");
+  } catch (e: any) {
+    console.error("Błąd konwersji 'salary_history.hourly_rate':", e.message);
   }
 
   // 5. Inicjalizacja stawek początkowych oraz uprawnień dla istniejących użytkowników

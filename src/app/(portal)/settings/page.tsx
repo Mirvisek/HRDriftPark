@@ -707,6 +707,7 @@ export default function SettingsPage() {
                   <input
                     type="number"
                     min="0"
+                    step="0.01"
                     required
                     value={newUser.hourlyRate}
                     onChange={e => setNewUser(prev => ({ ...prev, hourlyRate: Number(e.target.value) }))}
@@ -807,6 +808,7 @@ export default function SettingsPage() {
                             <input
                               type="number"
                               min="0"
+                              step="0.01"
                               defaultValue={u.hourlyRate || 0}
                               onBlur={async (e) => {
                                 const val = Number(e.target.value);

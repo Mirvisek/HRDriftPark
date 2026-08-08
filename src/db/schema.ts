@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, boolean, timestamp, date, mysqlEnum } from 'drizzle-orm/mysql-core';
+import { mysqlTable, int, varchar, text, boolean, timestamp, date, mysqlEnum, double } from 'drizzle-orm/mysql-core';
 
 export const users = mysqlTable('users', {
   id: int('id').primaryKey().autoincrement(),
@@ -13,7 +13,7 @@ export const users = mysqlTable('users', {
   mustChangePassword: boolean('must_change_password').notNull().default(false),
   resetToken: varchar('reset_token', { length: 255 }),
   resetTokenExpires: timestamp('reset_token_expires'),
-  hourlyRate: int('hourly_rate').notNull().default(0), // Stawka godzinowa w PLN
+  hourlyRate: double('hourly_rate').notNull().default(0), // Stawka godzinowa w PLN (Double dla dziesiętnych)
   permissions: text('permissions').notNull().default(''), // Uprawnienia rozdzielane przecinkami
   isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
@@ -119,7 +119,7 @@ export const auditLogs = mysqlTable('audit_logs', {
 export const salaryHistory = mysqlTable('salary_history', {
   id: int('id').primaryKey().autoincrement(),
   userId: int('user_id').notNull(),
-  hourlyRate: int('hourly_rate').notNull(),
+  hourlyRate: double('hourly_rate').notNull(),
   validFrom: date('valid_from', { mode: 'string' }).notNull(), // Data rozpoczęcia
   validTo: date('valid_to', { mode: 'string' }), // Data zakończenia (null oznacza wciąż aktywną)
   createdAt: timestamp('created_at').defaultNow(),
