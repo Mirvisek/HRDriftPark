@@ -6,17 +6,17 @@ import { eq, ne, and, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
 import { sendMail, getSetting } from "@/lib/mail";
+import { hasPermission, PermissionKey } from "@/lib/permissions";
 
 /**
- * Zabezpiecza akcje ustawień - pozwala na dostęp tylko dla ról 'owner' oraz 'technik'
+ * Zabezpiecza akcje ustawień - weryfikuje posiadanie danego uprawnienia przez zalogowanego użytkownika
  */
-async function checkAuth() {
+async function checkAuth(permission?: PermissionKey) {
   const session = await auth();
   if (!session?.user) {
     throw new Error("Brak autoryzacji.");
   }
-  const role = (session.user as any).role;
-  if (role !== "owner" && role !== "technik") {
+  if (permission && !hasPermission(session.user, permission)) {
     throw new Error("Brak uprawnień do tej operacji.");
   }
   return session;
@@ -26,7 +26,7 @@ async function checkAuth() {
  * Pobiera wszystkie ustawienia systemowe z bazy danych
  */
 export async function getSettingsAction() {
-  await checkAuth();
+  await checkAuth('settings:edit');
 
   try {
     const results = await db.select().from(settings);
@@ -45,7 +45,7 @@ export async function getSettingsAction() {
  * Zapisuje konfigurację SMTP oraz szablony e-mail w bazie danych
  */
 export async function saveSettingsAction(settingsData: Record<string, string>) {
-  await checkAuth();
+  await checkAuth('settings:edit');
 
   try {
     for (const [key, value] of Object.entries(settingsData)) {
@@ -80,7 +80,7 @@ export async function saveSettingsAction(settingsData: Record<string, string>) {
  * Pobiera listę wszystkich użytkowników w systemie (do wyświetlenia w panelu ustawień)
  */
 export async function getUsersAction() {
-  await checkAuth();
+  await checkAuth('users:manage');
 
   try {
     const allUsers = await db
@@ -95,7 +95,8 @@ export async function getUsersAction() {
         birthDate: users.birthDate,
         mustChangePassword: users.mustChangePassword,
         hourlyRate: users.hourlyRate,
-        createdAt: users.createdAt
+        createdAt: users.createdAt,
+        permissions: users.permissions
       })
       .from(users);
 
@@ -119,10 +120,11 @@ export async function createUserAction(userData: {
   position: string;
   birthDate: string;
   hourlyRate: number;
+  permissions?: string;
 }) {
-  const session = await checkAuth();
+  const session = await checkAuth('users:manage');
 
-  const { firstName, lastName, displayName, email, role, position, birthDate, hourlyRate } = userData;
+  const { firstName, lastName, displayName, email, role, position, birthDate, hourlyRate, permissions } = userData;
 
   if (!firstName || !lastName || !displayName || !email || !role || !position || !birthDate) {
     return { success: false, error: "Wszystkie pola są wymagane." };
@@ -144,6 +146,20 @@ export async function createUserAction(userData: {
     const tempPassword = Math.random().toString(36).substring(2, 12);
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
+    // Wyliczenie domyślnych uprawnień w przypadku braku przesłanych
+    let userPermissions = permissions;
+    if (userPermissions === undefined) {
+      if (role === 'owner') {
+        userPermissions = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send";
+      } else if (role === 'manager') {
+        userPermissions = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send";
+      } else if (role === 'technik') {
+        userPermissions = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send";
+      } else {
+        userPermissions = "schedule:view,timesheet:view_own,tasks:view";
+      }
+    }
+
     // Wstawianie użytkownika
     await db.insert(users).values({
       firstName: firstName.trim(),
@@ -156,6 +172,7 @@ export async function createUserAction(userData: {
       birthDate: birthDate.trim(),
       mustChangePassword: true, // Wymuszamy zmianę przy pierwszym logowaniu
       hourlyRate: hourlyRate || 0,
+      permissions: userPermissions,
       isDemo: false
     });
 
@@ -227,7 +244,7 @@ export async function createUserAction(userData: {
  * Uniemożliwia usunięcie samego siebie.
  */
 export async function deleteUserAction(userId: number) {
-  const session = await checkAuth();
+  const session = await checkAuth('users:manage');
   const currentUserId = Number((session.user as any).id);
 
   if (userId === currentUserId) {
@@ -255,7 +272,7 @@ export async function testSmtpConnectionAction(config: {
   smtp_password: string;
   smtp_from: string;
 }) {
-  await checkAuth();
+  await checkAuth('settings:edit');
 
   const { smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password } = config;
 
@@ -287,7 +304,7 @@ export async function testSmtpConnectionAction(config: {
 }
 
 export async function updateUserRateAction(userId: number, rate: number) {
-  await checkAuth();
+  await checkAuth('users:manage');
   if (rate < 0) return { success: false, error: "Stawka nie może być ujemna." };
 
   try {
@@ -343,10 +360,11 @@ export async function updateUserAction(
     role: 'owner' | 'manager' | 'employee' | 'technik';
     position: string;
     birthDate: string;
+    permissions?: string;
   }
 ) {
-  const session = await checkAuth();
-  const { firstName, lastName, displayName, email, role, position, birthDate } = userData;
+  const session = await checkAuth('users:manage');
+  const { firstName, lastName, displayName, email, role, position, birthDate, permissions } = userData;
 
   if (!firstName || !lastName || !displayName || !email || !role || !position || !birthDate) {
     return { success: false, error: "Wszystkie pola są wymagane." };
@@ -373,7 +391,8 @@ export async function updateUserAction(
         email: email.trim().toLowerCase(),
         role,
         position: position.trim(),
-        birthDate: birthDate.trim()
+        birthDate: birthDate.trim(),
+        permissions: permissions || ''
       })
       .where(eq(users.id, userId));
 
@@ -386,7 +405,7 @@ export async function updateUserAction(
 }
 
 export async function resetUserPasswordAction(userId: number) {
-  const session = await checkAuth();
+  const session = await checkAuth('users:manage');
 
   try {
     const userResult = await db

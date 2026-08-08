@@ -10,6 +10,7 @@ export const authConfig = {
         token.isDemo = (user as any).isDemo;
         token.mustChangePassword = (user as any).mustChangePassword;
         token.rememberMe = (user as any).rememberMe;
+        token.permissions = (user as any).permissions;
         
         if (token.rememberMe === "true") {
           token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 dni
@@ -26,6 +27,7 @@ export const authConfig = {
         (session.user as any).position = token.position;
         (session.user as any).isDemo = token.isDemo;
         (session.user as any).mustChangePassword = token.mustChangePassword;
+        (session.user as any).permissions = token.permissions;
       }
       return session;
     },

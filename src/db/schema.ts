@@ -14,6 +14,7 @@ export const users = mysqlTable('users', {
   resetToken: varchar('reset_token', { length: 255 }),
   resetTokenExpires: timestamp('reset_token_expires'),
   hourlyRate: int('hourly_rate').notNull().default(0), // Stawka godzinowa w PLN
+  permissions: text('permissions').notNull().default(''), // Uprawnienia rozdzielane przecinkami
   isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });

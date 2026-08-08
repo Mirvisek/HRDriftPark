@@ -39,6 +39,34 @@ import {
   saveTaskTemplateAction, 
   deleteTaskTemplateAction 
 } from '@/app/actions/taskActions';
+import { hasPermission } from '@/lib/permissions';
+
+const AVAILABLE_PERMISSIONS = [
+  { key: 'schedule:view', label: 'Podgląd grafiku pracy' },
+  { key: 'schedule:edit', label: 'Układanie i generowanie grafiku' },
+  { key: 'timesheet:view_own', label: 'Ewidencja własnych godzin' },
+  { key: 'timesheet:view_all', label: 'Podgląd kart godzin wszystkich' },
+  { key: 'timesheet:edit_all', label: 'Edycja kart godzin wszystkich' },
+  { key: 'tasks:view', label: 'Podgląd zadań na zmianie' },
+  { key: 'tasks:edit', label: 'Zarządzanie zadaniami i szablonami' },
+  { key: 'payroll:view', label: 'Podgląd rozliczeń płacowych' },
+  { key: 'settings:edit', label: 'Dostęp do ustawień i SMTP' },
+  { key: 'users:manage', label: 'Zarządzanie pracownikami i reset haseł' },
+  { key: 'push:send', label: 'Wysyłanie ręcznych powiadomień push' },
+];
+
+const getDefaultPermissionsForRole = (role: string): string => {
+  if (role === 'owner') {
+    return "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send";
+  }
+  if (role === 'manager') {
+    return "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send";
+  }
+  if (role === 'technik') {
+    return "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send";
+  }
+  return "schedule:view,timesheet:view_own,tasks:view";
+};
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
@@ -62,6 +90,7 @@ export default function SettingsPage() {
     position: 'Pracownik toru',
     birthDate: '',
     hourlyRate: 0,
+    permissions: 'schedule:view,timesheet:view_own,tasks:view',
   });
 
   // Szablony zadań stałych
@@ -89,16 +118,23 @@ export default function SettingsPage() {
   });
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
 
-  // Ochrona trasy (tylko owner i technik mają dostęp)
+  // Ochrona trasy oparta na uprawnieniach
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
     } else if (status === 'authenticated') {
-      const role = (session?.user as any)?.role;
-      if (role !== 'owner' && role !== 'technik') {
-        router.push('/availability'); // Zwykły pracownik lub menedżer nie mają tu dostępu
-      } else {
+      const user = session?.user;
+      if (hasPermission(user, 'users:manage')) {
+        setActiveTab('users');
         loadData();
+      } else if (hasPermission(user, 'settings:edit')) {
+        setActiveTab('smtp');
+        loadData();
+      } else if (hasPermission(user, 'tasks:edit')) {
+        setActiveTab('tasks');
+        loadData();
+      } else {
+        router.push('/availability'); // Brak uprawnień do jakiejkolwiek sekcji ustawień
       }
     }
   }, [status, session, router]);
@@ -106,26 +142,36 @@ export default function SettingsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [usersRes, settingsRes, templatesRes] = await Promise.all([
-        getUsersAction(),
-        getSettingsAction(),
-        getTaskTemplatesAction()
+      const user = session?.user;
+      
+      const loadUsers = hasPermission(user, 'users:manage');
+      const loadSettings = hasPermission(user, 'settings:edit');
+      const loadTemplates = hasPermission(user, 'tasks:edit');
+
+      const results = await Promise.all([
+        loadUsers ? getUsersAction() : Promise.resolve(null),
+        loadSettings ? getSettingsAction() : Promise.resolve(null),
+        loadTemplates ? getTaskTemplatesAction() : Promise.resolve(null)
       ]);
 
-      if (usersRes.success) {
+      const [usersRes, settingsRes, templatesRes] = results;
+
+      if (usersRes && usersRes.success) {
         setUsersList(usersRes.users || []);
       }
-      if (settingsRes.success && settingsRes.settings) {
+      
+      if (settingsRes && settingsRes.success && settingsRes.settings) {
         setSmtpSettings(prev => ({
           ...prev,
           ...settingsRes.settings
         }));
       }
-      if (templatesRes.success) {
+
+      if (templatesRes && templatesRes.success) {
         setTemplatesList(templatesRes.data || []);
       }
     } catch (err) {
-      console.error("Błąd ładowania ustawień:", err);
+      console.error("Błąd ładowania danych ustawień:", err);
     } finally {
       setLoading(false);
     }
@@ -150,6 +196,7 @@ export default function SettingsPage() {
           position: 'Pracownik toru',
           birthDate: '',
           hourlyRate: 0,
+          permissions: 'schedule:view,timesheet:view_own,tasks:view',
         });
         // Ponowne załadowanie listy
         const usersRes = await getUsersAction();
@@ -225,6 +272,7 @@ export default function SettingsPage() {
       role: user.role,
       position: user.position,
       birthDate: user.birthDate,
+      permissions: user.permissions || '',
     });
     setShowAddForm(false); // Zamknij form dodawania, jeśli otwarty
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -352,39 +400,45 @@ export default function SettingsPage() {
 
       {/* Zakładki */}
       <div className="flex border-b border-white/10 gap-2">
-        <button
-          onClick={() => { setActiveTab('users'); setStatusMsg(null); }}
-          className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
-            activeTab === 'users'
-              ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
-              : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Użytkownicy</span>
-        </button>
-        <button
-          onClick={() => { setActiveTab('smtp'); setStatusMsg(null); }}
-          className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
-            activeTab === 'smtp'
-              ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
-              : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
-          }`}
-        >
-          <SettingsIcon className="w-4 h-4" />
-          <span>SMTP & E-mail</span>
-        </button>
-        <button
-          onClick={() => { setActiveTab('tasks'); setStatusMsg(null); }}
-          className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
-            activeTab === 'tasks'
-              ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
-              : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
-          }`}
-        >
-          <ClipboardList className="w-4 h-4" />
-          <span>Szablony zadań</span>
-        </button>
+        {hasPermission(session?.user, 'users:manage') && (
+          <button
+            onClick={() => { setActiveTab('users'); setStatusMsg(null); }}
+            className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+              activeTab === 'users'
+                ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+                : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Użytkownicy</span>
+          </button>
+        )}
+        {hasPermission(session?.user, 'settings:edit') && (
+          <button
+            onClick={() => { setActiveTab('smtp'); setStatusMsg(null); }}
+            className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+              activeTab === 'smtp'
+                ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+                : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+            }`}
+          >
+            <SettingsIcon className="w-4 h-4" />
+            <span>SMTP & E-mail</span>
+          </button>
+        )}
+        {hasPermission(session?.user, 'tasks:edit') && (
+          <button
+            onClick={() => { setActiveTab('tasks'); setStatusMsg(null); }}
+            className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+              activeTab === 'tasks'
+                ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+                : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4" />
+            <span>Szablony zadań</span>
+          </button>
+        )}
       </div>
 
       {/* Zawartość Zakładki: UŻYTKOWNICY */}
@@ -459,7 +513,14 @@ export default function SettingsPage() {
                   <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Rola w systemie</label>
                   <select
                     value={editingUser.role}
-                    onChange={e => setEditingUser((prev: any) => ({ ...prev, role: e.target.value as any }))}
+                    onChange={e => {
+                      const newRole = e.target.value as any;
+                      setEditingUser((prev: any) => ({
+                        ...prev,
+                        role: newRole,
+                        permissions: getDefaultPermissionsForRole(newRole)
+                      }));
+                    }}
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   >
                     <option value="employee">Pracownik (Ewidencja, Grafik, Dyspozycja)</option>
@@ -487,6 +548,39 @@ export default function SettingsPage() {
                     onChange={e => setEditingUser((prev: any) => ({ ...prev, birthDate: e.target.value }))}
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   />
+                </div>
+                <div className="md:col-span-2 border-t border-white/5 pt-4 mt-2">
+                  <label className="block text-[11px] font-extrabold text-[#ffd700] uppercase tracking-wider mb-3">
+                    Indywidualne Uprawnienia Dostępowe:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {AVAILABLE_PERMISSIONS.map(p => {
+                      const permissionsArray = editingUser.permissions ? editingUser.permissions.split(',') : [];
+                      const isChecked = permissionsArray.includes(p.key);
+                      return (
+                        <label key={p.key} className="flex items-start gap-2.5 p-2 bg-white/2 rounded-lg hover:bg-white/5 transition cursor-pointer select-none border border-white/5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              let newPerms: string[];
+                              if (e.target.checked) {
+                                newPerms = [...permissionsArray, p.key];
+                              } else {
+                                newPerms = permissionsArray.filter((k: string) => k !== p.key);
+                              }
+                              setEditingUser((prev: any) => ({ ...prev, permissions: newPerms.join(',') }));
+                            }}
+                            className="mt-0.5 rounded border-white/10 bg-[#141414] text-brand-gold focus:ring-brand-gold"
+                          />
+                          <div>
+                            <span className="block text-xs font-semibold text-white">{p.label}</span>
+                            <span className="block text-[10px] text-[#666] font-mono">{p.key}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="md:col-span-2 flex justify-end gap-3 pt-2">
                   <button
@@ -571,7 +665,14 @@ export default function SettingsPage() {
                   <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">Rola w systemie</label>
                   <select
                     value={newUser.role}
-                    onChange={e => setNewUser(prev => ({ ...prev, role: e.target.value as any }))}
+                    onChange={e => {
+                      const newRole = e.target.value as any;
+                      setNewUser(prev => ({
+                        ...prev,
+                        role: newRole,
+                        permissions: getDefaultPermissionsForRole(newRole)
+                      }));
+                    }}
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   >
                     <option value="employee">Pracownik (Ewidencja, Grafik, Dyspozycja)</option>
@@ -611,6 +712,39 @@ export default function SettingsPage() {
                     onChange={e => setNewUser(prev => ({ ...prev, hourlyRate: Number(e.target.value) }))}
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   />
+                </div>
+                <div className="md:col-span-2 border-t border-white/5 pt-4 mt-2">
+                  <label className="block text-[11px] font-extrabold text-[#ffd700] uppercase tracking-wider mb-3">
+                    Indywidualne Uprawnienia Dostępowe:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {AVAILABLE_PERMISSIONS.map(p => {
+                      const permissionsArray = newUser.permissions ? newUser.permissions.split(',') : [];
+                      const isChecked = permissionsArray.includes(p.key);
+                      return (
+                        <label key={p.key} className="flex items-start gap-2.5 p-2 bg-white/2 rounded-lg hover:bg-white/5 transition cursor-pointer select-none border border-white/5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              let newPerms: string[];
+                              if (e.target.checked) {
+                                newPerms = [...permissionsArray, p.key];
+                              } else {
+                                newPerms = permissionsArray.filter((k: string) => k !== p.key);
+                              }
+                              setNewUser(prev => ({ ...prev, permissions: newPerms.join(',') }));
+                            }}
+                            className="mt-0.5 rounded border-white/10 bg-[#141414] text-brand-gold focus:ring-brand-gold"
+                          />
+                          <div>
+                            <span className="block text-xs font-semibold text-white">{p.label}</span>
+                            <span className="block text-[10px] text-[#666] font-mono">{p.key}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="md:col-span-2 flex justify-end gap-3 pt-2">
                   <button

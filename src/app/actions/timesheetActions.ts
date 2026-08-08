@@ -5,6 +5,7 @@ import { timesheets, users, salaryHistory } from "@/db/schema";
 import { eq, and, like, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import { logAuditEvent } from "./userActions";
+import { hasPermission } from "@/lib/permissions";
 
 export interface TimesheetEntry {
   id?: number;
@@ -19,9 +20,8 @@ export interface TimesheetEntry {
   version?: number;
 }
 
-// Sprawdzenie czy edycja jest zablokowana (ostatni dzień miesiąca o 22:00)
-export async function checkTimesheetLocked(year: number, month: number, userRole: string) {
-  if (userRole === 'owner' || userRole === 'manager') {
+export async function checkTimesheetLocked(year: number, month: number, user: any) {
+  if (hasPermission(user, 'timesheet:edit_all')) {
     return false;
   }
 
@@ -103,15 +103,21 @@ export async function saveTimesheet(
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
-  const userRole = (session.user as any).role;
-  const executorId = session.user ? Number((session.user as any).id) : null;
+  const user = session.user;
+  const targetUserId = Number(userId);
+  const currentUserId = Number((session.user as any).id);
+  const executorId = currentUserId;
+
+  if (targetUserId !== currentUserId && !hasPermission(session.user, 'timesheet:edit_all')) {
+    return { success: false, error: "Brak uprawnień do edycji kart godzin innych pracowników." };
+  }
 
   // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
   const [targetYear, targetMonth] = dateStr.split('-').map(Number);
   const dayNum = Number(dateStr.split('-')[2]);
 
   // Sprawdzanie blokady
-  const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
+  const isLocked = await checkTimesheetLocked(targetYear, targetMonth, user);
   if (isLocked) {
     return { success: false, error: "Edycja karty godzin na ten miesiąc została zablokowana (minęła godzina 22:00 ostatniego dnia miesiąca)." };
   }
@@ -193,11 +199,17 @@ export async function deleteTimesheet(id: number) {
     const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
     if (existing.length === 0) return { success: false, error: "Nie znaleziono wpisu." };
 
+    const targetUserId = existing[0].userId;
+    const currentUserId = Number((session.user as any).id);
+    if (targetUserId !== currentUserId && !hasPermission(session.user, 'timesheet:edit_all')) {
+      return { success: false, error: "Brak uprawnień do usuwania kart godzin innych pracowników." };
+    }
+
     // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
     const [targetYear, targetMonth] = existing[0].date.split('-').map(Number);
     const dayNum = Number(existing[0].date.split('-')[2]);
 
-    const isLocked = await checkTimesheetLocked(targetYear, targetMonth, userRole);
+    const isLocked = await checkTimesheetLocked(targetYear, targetMonth, session.user);
     if (isLocked) {
       return { success: false, error: "Edycja zablokowana." };
     }
@@ -226,8 +238,7 @@ export async function getAllTimesheets(year: number, month: number) {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
 
-  const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager') {
+  if (!hasPermission(session.user, 'timesheet:view_all')) {
     return { success: false, data: [], error: "Brak uprawnień." };
   }
 
@@ -262,7 +273,7 @@ export async function getPayrollSummary(year: number, month: number) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
   const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
+  if (!hasPermission(session.user, 'payroll:view')) {
     return { success: false, error: "Brak uprawnień" };
   }
 

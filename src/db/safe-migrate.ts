@@ -51,6 +51,19 @@ async function main() {
     }
   }
 
+  // 2.5. Dodanie kolumny permissions do users (jeśli nie istnieje)
+  try {
+    console.log("Dodawanie kolumny 'permissions' do tabeli 'users'...");
+    await db.execute(sql.raw("ALTER TABLE `users` ADD COLUMN `permissions` TEXT NOT NULL DEFAULT '';"));
+    console.log("[✓] Pomyślnie dodano kolumnę 'permissions' do 'users'.");
+  } catch (e: any) {
+    if (e.code === 'ER_DUP_FIELDNAME') {
+      console.log("[i] Kolumna 'permissions' w 'users' już istnieje.");
+    } else {
+      console.error("Błąd podczas dodawania kolumny 'permissions' do 'users':", e.message);
+    }
+  }
+
   // 3. Tworzenie tabeli audit_logs
   try {
     console.log("Tworzenie tabeli 'audit_logs'...");
@@ -89,12 +102,12 @@ async function main() {
     console.error("Błąd podczas tworzenia tabeli 'salary_history':", e.message);
   }
 
-  // 5. Inicjalizacja stawek początkowych dla istniejących użytkowników
+  // 5. Inicjalizacja stawek początkowych oraz uprawnień dla istniejących użytkowników
   try {
-    console.log("Generowanie stawek początkowych w salary_history dla obecnych użytkowników...");
+    console.log("Generowanie stawek początkowych w salary_history oraz domyślnych uprawnień dla obecnych użytkowników...");
     const allUsers = await db.select().from(users);
     for (const u of allUsers) {
-      // Sprawdź czy użytkownik ma już jakikolwiek wpis w historii
+      // A. Sprawdź stawkę historyczną
       const existingHistory = await db
         .select()
         .from(salaryHistory)
@@ -110,10 +123,27 @@ async function main() {
           validTo: null
         });
       }
+
+      // B. Sprawdź i nadaj domyślne uprawnienia (jeśli kolumna jest pusta)
+      if (!u.permissions) {
+        let defaultPerms = "";
+        if (u.role === 'owner') {
+          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send";
+        } else if (u.role === 'manager') {
+          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send";
+        } else if (u.role === 'technik') {
+          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send";
+        } else if (u.role === 'employee') {
+          defaultPerms = "schedule:view,timesheet:view_own,tasks:view";
+        }
+
+        console.log(`-> Nadawanie domyślnych uprawnień dla ${u.displayName} (${u.role}): ${defaultPerms}`);
+        await db.update(users).set({ permissions: defaultPerms }).where(sql`id = ${u.id}`);
+      }
     }
-    console.log("[✓] Zakończono inicjalizację stawek historycznych.");
+    console.log("[✓] Zakończono inicjalizację stawek historycznych i uprawnień.");
   } catch (e: any) {
-    console.error("Błąd podczas generowania stawek początkowych:", e.message);
+    console.error("Błąd podczas generowania stawek/uprawnień początkowych:", e.message);
   }
 
   console.log("Bezpieczna migracja bazy danych zakończona pomyślnie!");

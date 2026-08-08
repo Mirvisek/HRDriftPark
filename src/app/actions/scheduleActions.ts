@@ -6,6 +6,7 @@ import { eq, and, like } from "drizzle-orm";
 import { auth } from "@/auth";
 import { sendSystemNotification, logAuditEvent } from "./userActions";
 import { sendPushNotification, getFormattedNotification } from "@/lib/webPush";
+import { hasPermission } from "@/lib/permissions";
 
 export interface ScheduleEntry {
   id?: number;
@@ -171,8 +172,7 @@ export async function saveWorkScheduleEntry(
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
-  const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
+  if (!hasPermission(session.user, 'schedule:edit')) {
     return { success: false, error: "Brak uprawnień do edycji grafiku." };
   }
 
@@ -344,8 +344,7 @@ export async function generateSchedule(year: number, month: number) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
-  const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager') {
+  if (!hasPermission(session.user, 'schedule:edit')) {
     return { success: false, error: "Brak uprawnień." };
   }
 
@@ -477,8 +476,7 @@ export async function publishScheduleAction(year: number, month: number) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
-  const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
+  if (!hasPermission(session.user, 'schedule:edit')) {
     return { success: false, error: "Brak uprawnień." };
   }
 

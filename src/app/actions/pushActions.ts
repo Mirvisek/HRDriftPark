@@ -5,6 +5,7 @@ import { pushSubscriptions, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { sendSystemNotification } from "./userActions";
+import { hasPermission } from "@/lib/permissions";
 
 export async function saveSubscriptionAction(sub: {
   endpoint: string;
@@ -104,8 +105,7 @@ export async function sendCustomPushNotificationAction(
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
-  const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
+  if (!hasPermission(session.user, 'push:send')) {
     return { success: false, error: "Brak uprawnień." };
   }
 
