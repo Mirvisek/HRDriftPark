@@ -28,7 +28,8 @@ import {
   ImageIcon,
   Bell,
   Clock,
-  Palette
+  Palette,
+  Layers
 } from 'lucide-react';
 import { 
   getSettingsAction, 
@@ -125,6 +126,8 @@ export default function SettingsPage() {
     alert_low_stock_global: 'true',
     security_session_hours: '24',
     security_force_password_days: '0',
+    warehouse_suppliers: '',
+    warehouse_locations: '',
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
@@ -1741,6 +1744,44 @@ export default function SettingsPage() {
                       {siteSettings.alert_low_stock_global === 'true' ? 'Włączone — wyświetlane na dashboardzie' : 'Wyłączone'}
                     </span>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ---- Słowniki Magazynowe ---- */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-brand-gold" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Layers className="w-4 h-4 text-green-400" />
+                <span>Słowniki Magazynowe</span>
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Domyślni Dostawcy (rozdzieleni przecinkami)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={siteSettings.warehouse_suppliers || ''}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, warehouse_suppliers: e.target.value }))}
+                    placeholder="np. Makro, Allegro, Hurtownia opon, Inter Cars"
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                  <p className="mt-1 text-[10px] text-[#555] italic">Lista dostawców, którzy będą widoczni w rozwijanym menu podczas wprowadzania dostaw i produktów.</p>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Miejsca przechowywania / Półki (rozdzielone przecinkami)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={siteSettings.warehouse_locations || ''}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, warehouse_locations: e.target.value }))}
+                    placeholder="np. Półka A1, Półka B2, Lodówka 1, Zaplecze"
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  />
+                  <p className="mt-1 text-[10px] text-[#555] italic">Lista miejsc przechowywania i półek do przypisania produktom w katalogu.</p>
                 </div>
               </div>
             </div>

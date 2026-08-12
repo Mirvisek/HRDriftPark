@@ -10,7 +10,8 @@ import {
   warehouseInventoryItems,
   users,
   shiftTasks,
-  venues
+  venues,
+  settings
 } from "@/db/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { auth } from "@/auth";
@@ -995,6 +996,139 @@ export async function triggerDailySpotCheckAction(dateStr: string, venueId: numb
     return { success: true, inventoryId };
   } catch (e: any) {
     console.error("Błąd generowania inwentaryzacji wybiórczej:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+export async function getWarehousePresetsAction() {
+  await checkAuth('inventory:view');
+  try {
+    const results = await db.select().from(settings);
+    const settingsMap: Record<string, string> = {};
+    results.forEach(s => {
+      settingsMap[s.key] = s.value;
+    });
+
+    const locationsStr = settingsMap['warehouse_locations'] || '';
+    const suppliersStr = settingsMap['warehouse_suppliers'] || '';
+
+    const locations = locationsStr
+      ? locationsStr.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : ['Magazyn Główny', 'Półka A', 'Półka B', 'Lodówka 1', 'Zaplecze'];
+
+    const suppliers = suppliersStr
+      ? suppliersStr.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : ['Makro', 'Allegro', 'Dostawca Zewnętrzny', 'Hurtownia'];
+
+    return { success: true, locations, suppliers };
+  } catch (e: any) {
+    console.error("Błąd pobierania słowników magazynu:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+export async function importBulkProductsAction(productsList: Array<{
+  name: string;
+  categoryName: string;
+  unit: string;
+  supplier: string;
+  sku: string;
+  location: string;
+  initialStock: number;
+  minStock: number;
+  maxStock: number;
+  hasExpiry: boolean;
+  autoSpotCheck: boolean;
+  remarks: string;
+}>) {
+  const session = await checkAuth('inventory:manage');
+  const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
+
+  try {
+    let successCount = 0;
+    
+    // Pobierz istniejące kategorie, by nie odpytywać bazy w pętli bez potrzeby
+    const allCategories = await db.select().from(warehouseCategories);
+    const categoryMap = new Map<string, number>();
+    allCategories.forEach(c => categoryMap.set(c.name.toLowerCase().trim(), c.id));
+
+    for (const item of productsList) {
+      if (!item.name || !item.name.trim()) continue;
+      const catNameNorm = (item.categoryName || 'Inne').trim();
+      const catKey = catNameNorm.toLowerCase();
+      
+      let categoryId: number;
+      if (categoryMap.has(catKey)) {
+        categoryId = categoryMap.get(catKey)!;
+      } else {
+        // Dodaj nową kategorię
+        const [insertCat] = await db.insert(warehouseCategories).values({
+          name: catNameNorm
+        });
+        categoryId = (insertCat as any).insertId || 0;
+        categoryMap.set(catKey, categoryId);
+      }
+
+      // Wstaw produkt
+      const [insertProd] = await db.insert(warehouseProducts).values({
+        name: item.name.trim(),
+        categoryId,
+        unit: item.unit?.trim() || 'szt.',
+        supplier: item.supplier?.trim() || null,
+        minStock: Number(item.minStock) || 0,
+        maxStock: Number(item.maxStock) || 0,
+        sku: item.sku?.trim() || null,
+        location: item.location?.trim() || null,
+        hasExpiry: !!item.hasExpiry,
+        autoSpotCheck: !!item.autoSpotCheck,
+        remarks: item.remarks?.trim() || null,
+        status: 'active'
+      });
+      const productId = (insertProd as any).insertId || 0;
+
+      // Jeśli podano stan początkowy, zasilamy go partią i historią
+      const initialQty = Number(item.initialStock);
+      if (!isNaN(initialQty) && initialQty > 0 && productId > 0) {
+        const [insertBatch] = await db.insert(warehouseBatches).values({
+          productId,
+          batchNumber: item.hasExpiry ? 'PARTIA-START' : 'DEFAULT',
+          expiryDate: null,
+          quantity: initialQty,
+          venueId: userVenueId
+        });
+        
+        await db.insert(warehouseHistory).values({
+          productId,
+          batchId: (insertBatch as any).insertId || null,
+          userId,
+          type: 'correction',
+          quantity: initialQty,
+          source: 'Import z Excela',
+          remarks: 'Inicjalizacja stanu z importu Excela',
+          venueId: userVenueId
+        });
+      }
+      
+      successCount++;
+    }
+
+    return { success: true, count: successCount };
+  } catch (e: any) {
+    console.error("Błąd podczas importu z Excela:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+export async function clearWarehouseHistoryAction() {
+  const session = await checkAuth('inventory:manage');
+  const userVenueId = (session.user as any).venueId || 1;
+
+  try {
+    await db.delete(warehouseHistory).where(eq(warehouseHistory.venueId, userVenueId));
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd podczas czyszczenia historii operacji:", e);
     return { success: false, error: e.message };
   }
 }

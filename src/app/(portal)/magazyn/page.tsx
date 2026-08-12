@@ -1,5 +1,6 @@
 'use client';
 
+import * as XLSX from 'xlsx';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -43,7 +44,10 @@ import {
   getInventoryDetailsAction, 
   cancelInventoryAction,
   getWarehouseDashboardAction, 
-  getWarehouseHistoryAction 
+  getWarehouseHistoryAction,
+  getWarehousePresetsAction,
+  importBulkProductsAction,
+  clearWarehouseHistoryAction
 } from '@/app/actions/inventoryActions';
 
 export default function WarehousePage() {
@@ -119,7 +123,7 @@ export default function WarehousePage() {
   // Modal szybkiego dodania nowego produktu
   const [quickAddProduct, setQuickAddProduct] = useState(false);
   const [quickAddForm, setQuickAddForm] = useState({
-    name: '', categoryId: '', unit: 'szt.', supplier: '', hasExpiry: false, minStock: 0, maxStock: 0
+    name: '', categoryId: '', unit: 'szt.', supplier: '', hasExpiry: false, minStock: 0, maxStock: 0, location: ''
   });
   const [quickAddTargetUid, setQuickAddTargetUid] = useState<string | null>(null);
 
@@ -135,6 +139,27 @@ export default function WarehousePage() {
   const [activeInventory, setActiveInventory] = useState<any | null>(null); // { header, items }
   const [inventoryFormValues, setInventoryFormValues] = useState<Record<number, { actualStock: number; remarks: string }>>({});
   const [viewingInventoryDetails, setViewingInventoryDetails] = useState<any | null>(null);
+
+  // Słowniki pobierane z ustawień strony
+  const [presetLocations, setPresetLocations] = useState<string[]>([]);
+  const [presetSuppliers, setPresetSuppliers] = useState<string[]>([]);
+  const [supplierCustom, setSupplierCustom] = useState(false);
+  const [locationCustom, setLocationCustom] = useState(false);
+  const [bulkSupplierCustom, setBulkSupplierCustom] = useState(false);
+  const [quickSupplierCustom, setQuickSupplierCustom] = useState(false);
+  const [quickLocationCustom, setQuickLocationCustom] = useState(false);
+
+  // Obsługa customowych dropdownów wyszukiwarki (Combobox) w dostawach
+  const [dropdownOpen, setDropdownOpen] = useState<Record<string, boolean>>({});
+  const [dropdownSearch, setDropdownSearch] = useState<Record<string, string>>({});
+
+  // Szczegółowy modal podglądu operacji historycznej
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<any | null>(null);
+
+  // Obsługa importu z Excela
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Ochrona trasy
   useEffect(() => {
@@ -153,12 +178,13 @@ export default function WarehousePage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [categoriesRes, productsRes, dashboardRes, historyRes, inventoriesRes] = await Promise.all([
+      const [categoriesRes, productsRes, dashboardRes, historyRes, inventoriesRes, presetsRes] = await Promise.all([
         getCategoriesAction(),
         getProductsAction(),
         getWarehouseDashboardAction(),
         getWarehouseHistoryAction(),
-        getInventoryHistoryAction()
+        getInventoryHistoryAction(),
+        getWarehousePresetsAction()
       ]);
 
       if (categoriesRes.success) setCategories(categoriesRes.data || []);
@@ -166,6 +192,10 @@ export default function WarehousePage() {
       if (dashboardRes.success) setDashboard(dashboardRes.data || {});
       if (historyRes.success) setHistory(historyRes.data || []);
       if (inventoriesRes.success) setInventories(inventoriesRes.data || []);
+      if (presetsRes && presetsRes.success) {
+        setPresetLocations(presetsRes.locations || []);
+        setPresetSuppliers(presetsRes.suppliers || []);
+      }
     } catch (e) {
       console.error("Błąd wczytywania danych magazynu:", e);
     } finally {
@@ -211,6 +241,8 @@ export default function WarehousePage() {
   // -------------------------------------------------------------
   const openProductAdd = () => {
     setEditingProduct(null);
+    setSupplierCustom(false);
+    setLocationCustom(false);
     setProductForm({
       name: '',
       categoryId: categories.length > 0 ? String(categories[0].id) : '',
@@ -229,6 +261,10 @@ export default function WarehousePage() {
 
   const openProductEdit = (p: any) => {
     setEditingProduct(p);
+    const isSuppCustom = p.supplier && !presetSuppliers.includes(p.supplier);
+    const isLocCustom = p.location && !presetLocations.includes(p.location);
+    setSupplierCustom(!!isSuppCustom);
+    setLocationCustom(!!isLocCustom);
     setProductForm({
       name: p.name,
       categoryId: String(p.categoryId),
@@ -296,6 +332,134 @@ export default function WarehousePage() {
     }
   };
 
+  // Obsługa importu z arkusza Excel / CSV
+  const handleFileImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportStatus(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+        if (rows.length < 2) {
+          setImportStatus({ type: 'error', text: 'Arkusz jest pusty lub nie posiada nagłówków.' });
+          return;
+        }
+
+        const headers = rows[0].map(h => String(h).trim().toLowerCase());
+        
+        // Pomocnik dopasowania indeksu kolumn
+        const colIndex = (names: string[]) => headers.findIndex(h => names.some(n => h.includes(n)));
+
+        const idxName = colIndex(['nazwa', 'name', 'artykuł', 'produkt']);
+        const idxCategory = colIndex(['kategoria', 'category', 'grupa']);
+        const idxUnit = colIndex(['jednostka', 'unit', 'miara']);
+        const idxSupplier = colIndex(['dostawca', 'supplier', 'producent']);
+        const idxSku = colIndex(['sku', 'kod', 'index']);
+        const idxLocation = colIndex(['lokalizacja', 'location', 'półka', 'miejsce']);
+        const idxInitialStock = colIndex(['stan', 'ilość', 'stock', 'ilośc', 'początkowy', 'ilosc']);
+        const idxMinStock = colIndex(['min', 'minimalny', 'ostrzegawczy']);
+        const idxMaxStock = colIndex(['max', 'maksymalny']);
+        const idxHasExpiry = colIndex(['ważności', 'expiry', 'data', 'waznosci']);
+        const idxAutoSpotCheck = colIndex(['wybiórcza', 'spot', 'auto', 'wybiorcza']);
+        const idxRemarks = colIndex(['uwagi', 'remarks', 'opis']);
+
+        if (idxName === -1 || idxCategory === -1) {
+          setImportStatus({ type: 'error', text: 'Nie odnaleziono wymaganych kolumn (Nazwa, Kategoria).' });
+          return;
+        }
+
+        const parsedProducts: any[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0 || !row[idxName]) continue;
+
+          const parseBoolean = (val: any) => {
+            if (!val) return false;
+            const str = String(val).trim().toLowerCase();
+            return str === 'tak' || str === 'yes' || str === 'true' || str === '1' || str === 't';
+          };
+
+          parsedProducts.push({
+            name: String(row[idxName]).trim(),
+            categoryName: String(row[idxCategory]).trim(),
+            unit: idxUnit !== -1 && row[idxUnit] ? String(row[idxUnit]).trim() : 'szt.',
+            supplier: idxSupplier !== -1 && row[idxSupplier] ? String(row[idxSupplier]).trim() : '',
+            sku: idxSku !== -1 && row[idxSku] ? String(row[idxSku]).trim() : '',
+            location: idxLocation !== -1 && row[idxLocation] ? String(row[idxLocation]).trim() : '',
+            initialStock: idxInitialStock !== -1 && row[idxInitialStock] ? Number(row[idxInitialStock]) || 0 : 0,
+            minStock: idxMinStock !== -1 && row[idxMinStock] ? Number(row[idxMinStock]) || 0 : 0,
+            maxStock: idxMaxStock !== -1 && row[idxMaxStock] ? Number(row[idxMaxStock]) || 0 : 0,
+            hasExpiry: idxHasExpiry !== -1 ? parseBoolean(row[idxHasExpiry]) : false,
+            autoSpotCheck: idxAutoSpotCheck !== -1 ? parseBoolean(row[idxAutoSpotCheck]) : false,
+            remarks: idxRemarks !== -1 && row[idxRemarks] ? String(row[idxRemarks]).trim() : ''
+          });
+        }
+
+        if (parsedProducts.length === 0) {
+          setImportStatus({ type: 'error', text: 'Brak poprawnych rekordów produktów w pliku.' });
+        } else {
+          setImportPreview(parsedProducts);
+        }
+      } catch (err: any) {
+        setImportStatus({ type: 'error', text: 'Błąd przetwarzania pliku Excel: ' + err.message });
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleExecuteImport = async () => {
+    if (importPreview.length === 0) return;
+    setActionLoading(true);
+    setImportStatus(null);
+    try {
+      const res = await importBulkProductsAction(importPreview);
+      if (res.success) {
+        setImportStatus({ type: 'success', text: `Pomyślnie zaimportowano ${res.count} produktów.` });
+        setImportPreview([]);
+        loadData();
+      } else {
+        setImportStatus({ type: 'error', text: res.error || 'Błąd zapisu danych w bazie.' });
+      }
+    } catch (err: any) {
+      setImportStatus({ type: 'error', text: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Czyszczenie historii operacji
+  const handleClearHistory = async () => {
+    const confirm1 = window.confirm("⚠️ OSTRZEŻENIE!\n\nCzy na pewno chcesz usunąć całą historię operacji magazynowych dla tego lokalu? Ta operacja jest całkowicie nieodwracalna!");
+    if (!confirm1) return;
+    
+    const confirm2 = window.confirm("⚠️ POTWIERDZENIE OSTATECZNE\n\nPotwierdź ponownie, aby bezpowrotnie wyczyścić rejestr ruchów magazynowych. Stany magazynowe (ilości w partiach) pozostaną bez zmian.");
+    if (!confirm2) return;
+
+    setActionLoading(true);
+    try {
+      const res = await clearWarehouseHistoryAction();
+      if (res.success) {
+        setStatusMsg({ type: 'success', text: 'Pomyślnie wyczyszczono całą historię operacji.' });
+        const historyRes = await getWarehouseHistoryAction();
+        if (historyRes.success) setHistory(historyRes.data || []);
+      } else {
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd czyszczenia historii.' });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message });
+    } finally {
+      setActionLoading(false);
+      setTimeout(() => setStatusMsg(null), 4000);
+    }
+  };
+
   // -------------------------------------------------------------
   // OPERACJE DOSTAW
   // -------------------------------------------------------------
@@ -337,7 +501,7 @@ export default function WarehousePage() {
         minStock: quickAddForm.minStock,
         maxStock: quickAddForm.maxStock,
         sku: '',
-        location: '',
+        location: quickAddForm.location,
         autoSpotCheck: false,
         remarks: ''
       });
@@ -349,7 +513,9 @@ export default function WarehousePage() {
           updateBulkItem(quickAddTargetUid, 'productId', res.productId);
         }
         setQuickAddProduct(false);
-        setQuickAddForm({ name: '', categoryId: '', unit: 'szt.', supplier: '', hasExpiry: false, minStock: 0, maxStock: 0 });
+        setQuickAddForm({ name: '', categoryId: '', unit: 'szt.', supplier: '', hasExpiry: false, minStock: 0, maxStock: 0, location: '' });
+        setQuickSupplierCustom(false);
+        setQuickLocationCustom(false);
         setQuickAddTargetUid(null);
         setStatusMsg({ type: 'success', text: `Dodano nowy produkt "${quickAddForm.name}" do katalogu.` });
       } else {
@@ -706,13 +872,26 @@ export default function WarehousePage() {
           </button>
           
           {canManage && (
-            <button
-              onClick={openProductAdd}
-              className="px-4 py-2.5 bg-gradient-to-r from-brand-red to-brand-gold text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-95 transition transform hover:-translate-y-0.5 cursor-pointer flex items-center gap-2 shadow-lg shadow-brand-red/10"
-            >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              <span>Dodaj produkt</span>
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setImportPreview([]);
+                  setImportStatus(null);
+                  setShowImportModal(true);
+                }}
+                className="px-4 py-2.5 bg-[#141414] hover:bg-[#1e1e1e] text-brand-gold text-xs font-black rounded-lg border border-brand-gold/20 uppercase tracking-wider transition hover:-translate-y-0.5 cursor-pointer flex items-center gap-2"
+              >
+                <span>📥 Importuj z Excela</span>
+              </button>
+
+              <button
+                onClick={openProductAdd}
+                className="px-4 py-2.5 bg-gradient-to-r from-brand-red to-brand-gold text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-95 transition transform hover:-translate-y-0.5 cursor-pointer flex items-center gap-2 shadow-lg shadow-brand-red/10"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span>Dodaj produkt</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1191,13 +1370,86 @@ export default function WarehousePage() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1">Dostawca</label>
-                    <input
-                      type="text"
-                      value={quickAddForm.supplier}
-                      onChange={e => setQuickAddForm(p => ({ ...p, supplier: e.target.value }))}
-                      placeholder="np. Makro, Allegro..."
-                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                    />
+                    {!quickSupplierCustom ? (
+                      <select
+                        value={presetSuppliers.includes(quickAddForm.supplier) ? quickAddForm.supplier : quickAddForm.supplier ? '__custom__' : ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === '__custom__') {
+                            setQuickSupplierCustom(true);
+                            setQuickAddForm(p => ({ ...p, supplier: '' }));
+                          } else {
+                            setQuickAddForm(p => ({ ...p, supplier: val }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      >
+                        <option value="">-- Wybierz dostawcę --</option>
+                        {presetSuppliers.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                        <option value="__custom__" className="text-brand-gold font-bold">✍️ Wpisz innego...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Wpisz dostawcę..."
+                          value={quickAddForm.supplier}
+                          onChange={e => setQuickAddForm(p => ({ ...p, supplier: e.target.value }))}
+                          className="flex-1 px-3 py-2 bg-[#141414] border border-brand-gold/30 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setQuickSupplierCustom(false); setQuickAddForm(p => ({ ...p, supplier: presetSuppliers[0] || '' })); }}
+                          className="px-2 py-1 text-[10px] text-brand-gold border border-brand-gold/10 hover:bg-brand-gold/10 rounded transition cursor-pointer"
+                        >
+                          Lista
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1">Miejsce składowania (Lokalizacja)</label>
+                    {!quickLocationCustom ? (
+                      <select
+                        value={presetLocations.includes(quickAddForm.location) ? quickAddForm.location : quickAddForm.location ? '__custom__' : ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === '__custom__') {
+                            setQuickLocationCustom(true);
+                            setQuickAddForm(p => ({ ...p, location: '' }));
+                          } else {
+                            setQuickAddForm(p => ({ ...p, location: val }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      >
+                        <option value="">-- Wybierz lokalizację --</option>
+                        {presetLocations.map(l => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                        <option value="__custom__" className="text-brand-gold font-bold">✍️ Wpisz inną...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="np. Regał A-3..."
+                          value={quickAddForm.location}
+                          onChange={e => setQuickAddForm(p => ({ ...p, location: e.target.value }))}
+                          className="flex-1 px-3 py-2 bg-[#141414] border border-brand-gold/30 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setQuickLocationCustom(false); setQuickAddForm(p => ({ ...p, location: presetLocations[0] || '' })); }}
+                          className="px-2 py-1 text-[10px] text-brand-gold border border-brand-gold/10 hover:bg-brand-gold/10 rounded transition cursor-pointer"
+                        >
+                          Lista
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer group">
                     <input type="checkbox" checked={quickAddForm.hasExpiry} onChange={e => setQuickAddForm(p => ({ ...p, hasExpiry: e.target.checked }))} className="rounded" />
@@ -1227,13 +1479,44 @@ export default function WarehousePage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Dostawca</label>
-                    <input
-                      type="text"
-                      placeholder="np. Makro, Allegro, Hurtownia..."
-                      value={bulkDelivery.supplier}
-                      onChange={e => setBulkDelivery(p => ({ ...p, supplier: e.target.value }))}
-                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                    />
+                    {!bulkSupplierCustom ? (
+                      <select
+                        value={presetSuppliers.includes(bulkDelivery.supplier) ? bulkDelivery.supplier : bulkDelivery.supplier ? '__custom__' : ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === '__custom__') {
+                            setBulkSupplierCustom(true);
+                            setBulkDelivery(p => ({ ...p, supplier: '' }));
+                          } else {
+                            setBulkDelivery(p => ({ ...p, supplier: val }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      >
+                        <option value="">-- Wybierz dostawcę --</option>
+                        {presetSuppliers.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                        <option value="__custom__" className="text-brand-gold font-bold">✍️ Wpisz innego...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Wpisz nazwę dostawcy..."
+                          value={bulkDelivery.supplier}
+                          onChange={e => setBulkDelivery(p => ({ ...p, supplier: e.target.value }))}
+                          className="flex-1 px-3 py-2 bg-[#141414] border border-brand-gold/30 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setBulkSupplierCustom(false); setBulkDelivery(p => ({ ...p, supplier: presetSuppliers[0] || '' })); }}
+                          className="px-2 py-1 text-[10px] text-brand-gold border border-brand-gold/10 hover:bg-brand-gold/10 rounded transition cursor-pointer"
+                        >
+                          Lista
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Numer faktury / dokumentu</label>
@@ -1291,29 +1574,93 @@ export default function WarehousePage() {
                     return (
                       <div key={item.uid} className="grid grid-cols-12 gap-2 items-start p-2 rounded-xl bg-white/2 hover:bg-white/[0.03] transition border border-white/5">
                         {/* Produkt */}
-                        <div className="col-span-12 sm:col-span-5">
+                        <div className="col-span-12 sm:col-span-5 relative">
                           <div className="flex gap-1.5">
-                            <select
-                              value={item.productId}
-                              onChange={e => {
-                                const val = e.target.value;
-                                if (val === '__new__') {
-                                  setQuickAddTargetUid(item.uid);
-                                  setQuickAddProduct(true);
-                                } else {
-                                  updateBulkItem(item.uid, 'productId', val === '' ? '' : Number(val));
-                                }
-                              }}
-                              className="flex-1 px-2 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                            >
-                              <option value="">-- Wybierz produkt --</option>
-                              {products.filter(p => p.status === 'active').map(p => (
-                                <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
-                              ))}
-                              <option value="__new__" className="text-brand-gold font-bold">➕ Dodaj nowy produkt...</option>
-                            </select>
+                            {/* Custom Searchable Select (Combobox) */}
+                            <div className="relative flex-1">
+                              <div
+                                onClick={() => setDropdownOpen(prev => ({ ...prev, [item.uid]: !prev[item.uid] }))}
+                                className="w-full px-3 py-2 bg-[#141414] border border-white/10 hover:border-white/20 rounded-lg text-white text-xs focus-within:border-brand-gold transition cursor-pointer flex justify-between items-center"
+                              >
+                                <input
+                                  type="text"
+                                  placeholder="Wyszukaj produkt..."
+                                  value={
+                                    dropdownOpen[item.uid]
+                                      ? (dropdownSearch[item.uid] ?? '')
+                                      : (selectedProd ? `${selectedProd.name} (${selectedProd.unit})` : '')
+                                  }
+                                  onChange={e => {
+                                    setDropdownSearch(prev => ({ ...prev, [item.uid]: e.target.value }));
+                                    setDropdownOpen(prev => ({ ...prev, [item.uid]: true }));
+                                  }}
+                                  onClick={e => e.stopPropagation()}
+                                  onFocus={() => {
+                                    setDropdownOpen(prev => ({ ...prev, [item.uid]: true }));
+                                    setDropdownSearch(prev => ({ ...prev, [item.uid]: '' }));
+                                  }}
+                                  onBlur={() => {
+                                    setTimeout(() => {
+                                      setDropdownOpen(prev => ({ ...prev, [item.uid]: false }));
+                                    }, 250);
+                                  }}
+                                  className="bg-transparent border-none outline-none text-white text-xs w-full cursor-text"
+                                />
+                                <span className="text-[#555] text-[10px] ml-1 shrink-0">▼</span>
+                              </div>
+
+                              {dropdownOpen[item.uid] && (
+                                <div className="absolute left-0 right-0 z-30 mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-2xl max-h-[200px] overflow-y-auto scrollbar-thin divide-y divide-white/5 animate-fadeIn">
+                                  {(() => {
+                                    const query = (dropdownSearch[item.uid] ?? '').toLowerCase().trim();
+                                    const filtered = products.filter(p =>
+                                      p.status === 'active' &&
+                                      p.name.toLowerCase().includes(query)
+                                    );
+
+                                    return (
+                                      <>
+                                        {filtered.length === 0 ? (
+                                          <div className="px-3 py-2.5 text-xs text-[#555] italic">Brak pasujących produktów</div>
+                                        ) : (
+                                          filtered.map(p => (
+                                            <div
+                                              key={p.id}
+                                              onClick={() => {
+                                                updateBulkItem(item.uid, 'productId', p.id);
+                                                if (p.supplier && !bulkDelivery.supplier) {
+                                                  setBulkDelivery(prev => ({ ...prev, supplier: p.supplier }));
+                                                }
+                                                setDropdownSearch(prev => ({ ...prev, [item.uid]: '' }));
+                                                setDropdownOpen(prev => ({ ...prev, [item.uid]: false }));
+                                              }}
+                                              className="px-3 py-2.5 text-xs hover:bg-brand-gold/10 hover:text-brand-gold cursor-pointer transition flex justify-between items-center text-white"
+                                            >
+                                              <span className="font-semibold">{p.name}</span>
+                                              <span className="text-[10px] text-[#666] font-mono bg-white/5 px-1.5 py-0.5 rounded">{p.unit}</span>
+                                            </div>
+                                          ))
+                                        )}
+                                        <div
+                                          onClick={() => {
+                                            setQuickAddTargetUid(item.uid);
+                                            setQuickSupplierCustom(false);
+                                            setQuickLocationCustom(false);
+                                            setQuickAddProduct(true);
+                                            setDropdownOpen(prev => ({ ...prev, [item.uid]: false }));
+                                          }}
+                                          className="px-3 py-2.5 text-xs bg-black/40 hover:bg-brand-gold/20 text-brand-gold font-bold cursor-pointer transition flex items-center gap-1.5"
+                                        >
+                                          ➕ Dodaj nowy produkt...
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          {idx === 0 && <p className="text-[9px] text-[#444] mt-0.5">Wybierz lub dodaj nowy produkt</p>}
+                          {idx === 0 && <p className="text-[9px] text-[#444] mt-0.5">Wyszukaj lub dodaj nowy produkt</p>}
                         </div>
 
                         {/* Ilość */}
@@ -1456,12 +1803,13 @@ export default function WarehousePage() {
                     <th className="pb-3">Użytkownik</th>
                     <th className="pb-3">Uwagi</th>
                     <th className="pb-3 text-center">Załącznik</th>
+                    <th className="pb-3 text-center">Audyt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs text-[#a0a0a0]">
                   {history.filter(h => h.type === 'delivery').length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-6 text-center italic text-[#555]">Brak danych w historii dostaw.</td>
+                      <td colSpan={8} className="py-6 text-center italic text-[#555]">Brak danych w historii dostaw.</td>
                     </tr>
                   ) : (
                     history.filter(h => h.type === 'delivery').map(h => (
@@ -1488,6 +1836,16 @@ export default function WarehousePage() {
                           ) : (
                             <span className="text-[#444] text-[10px] italic">Brak</span>
                           )}
+                        </td>
+                        <td className="py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedHistoryItem(h)}
+                            className="p-1 hover:bg-white/5 rounded text-[#a0a0a0] hover:text-brand-gold transition cursor-pointer"
+                            title="Pokaż szczegóły (Lupka)"
+                          >
+                            <Search className="w-4 h-4" />
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -2038,6 +2396,17 @@ export default function WarehousePage() {
               <option value="issue">Wydania na lokale</option>
               <option value="correction">Korekty inwentaryzacji</option>
             </select>
+
+            {canManage && (
+              <button
+                type="button"
+                onClick={handleClearHistory}
+                disabled={actionLoading}
+                className="px-4 py-2 bg-brand-red/10 hover:bg-brand-red/20 border border-brand-red/30 text-brand-red rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 uppercase tracking-wider"
+              >
+                <span>🗑️ Wyczyść historię</span>
+              </button>
+            )}
           </div>
 
           {/* Tabela historii ruchów */}
@@ -2054,6 +2423,7 @@ export default function WarehousePage() {
                     <th className="p-4">Użytkownik</th>
                     <th className="p-4">Uwagi</th>
                     <th className="p-4 text-center">Faktura</th>
+                    <th className="p-4 text-center">Audyt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs text-[#a0a0a0]">
@@ -2109,6 +2479,16 @@ export default function WarehousePage() {
                             ) : (
                               <span className="text-[#444] text-[10px] italic">Brak</span>
                             )}
+                          </td>
+                          <td className="p-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedHistoryItem(h)}
+                              className="p-1 hover:bg-white/5 rounded text-[#a0a0a0] hover:text-brand-gold transition cursor-pointer"
+                              title="Pokaż szczegóły (Lupka)"
+                            >
+                              <Search className="w-4 h-4" />
+                            </button>
                           </td>
                         </tr>
                       );
@@ -2186,26 +2566,88 @@ export default function WarehousePage() {
                   </select>
                 </div>
 
-                <div>
+                 <div>
                   <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Dostawca główny</label>
-                  <input
-                    type="text"
-                    placeholder="np. Inter Cars, ABC Hurtownia..."
-                    value={productForm.supplier}
-                    onChange={e => setProductForm(prev => ({ ...prev, supplier: e.target.value }))}
-                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                  />
+                  {!supplierCustom ? (
+                    <select
+                      value={presetSuppliers.includes(productForm.supplier) ? productForm.supplier : productForm.supplier ? '__custom__' : ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '__custom__') {
+                          setSupplierCustom(true);
+                          setProductForm(prev => ({ ...prev, supplier: '' }));
+                        } else {
+                          setProductForm(prev => ({ ...prev, supplier: val }));
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    >
+                      <option value="">-- Wybierz dostawcę --</option>
+                      {presetSuppliers.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                      <option value="__custom__" className="text-brand-gold font-bold">✍️ Wpisz innego...</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Wpisz nazwę dostawcy..."
+                        value={productForm.supplier}
+                        onChange={e => setProductForm(prev => ({ ...prev, supplier: e.target.value }))}
+                        className="flex-1 px-3 py-2 bg-[#141414] border border-brand-gold/30 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setSupplierCustom(false); setProductForm(prev => ({ ...prev, supplier: presetSuppliers[0] || '' })); }}
+                        className="px-2 py-1 text-[10px] text-brand-gold border border-brand-gold/10 hover:bg-brand-gold/10 rounded transition cursor-pointer"
+                      >
+                        Lista
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Sektor / Lokalizacja w magazynie</label>
-                  <input
-                    type="text"
-                    placeholder="np. Regał A-3"
-                    value={productForm.location}
-                    onChange={e => setProductForm(prev => ({ ...prev, location: e.target.value }))}
-                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
-                  />
+                  {!locationCustom ? (
+                    <select
+                      value={presetLocations.includes(productForm.location) ? productForm.location : productForm.location ? '__custom__' : ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '__custom__') {
+                          setLocationCustom(true);
+                          setProductForm(prev => ({ ...prev, location: '' }));
+                        } else {
+                          setProductForm(prev => ({ ...prev, location: val }));
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                    >
+                      <option value="">-- Wybierz lokalizację --</option>
+                      {presetLocations.map(l => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                      <option value="__custom__" className="text-brand-gold font-bold">✍️ Wpisz inną...</option>
+                    </select>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="np. Regał A-3..."
+                        value={productForm.location}
+                        onChange={e => setProductForm(prev => ({ ...prev, location: e.target.value }))}
+                        className="flex-1 px-3 py-2 bg-[#141414] border border-brand-gold/30 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setLocationCustom(false); setProductForm(prev => ({ ...prev, location: presetLocations[0] || '' })); }}
+                        className="px-2 py-1 text-[10px] text-brand-gold border border-brand-gold/10 hover:bg-brand-gold/10 rounded transition cursor-pointer"
+                      >
+                        Lista
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2390,6 +2832,237 @@ export default function WarehousePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL: IMPORT Z EXCELA / CSV                                  */}
+      {/* ------------------------------------------------------------- */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass-card max-w-4xl w-full bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 relative overflow-hidden animate-fadeIn max-h-[90vh] flex flex-col">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 via-brand-gold to-green-500" />
+            
+            <div className="flex justify-between items-center border-b border-white/5 pb-3 shrink-0">
+              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <span>📥 Import katalogu z Excela / CSV</span>
+              </h3>
+              <button
+                onClick={() => { setShowImportModal(false); setImportPreview([]); setImportStatus(null); }}
+                className="text-[#555] hover:text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 py-4 overflow-y-auto flex-1 scrollbar-thin pr-1">
+              <div className="p-4 bg-white/2 rounded-xl border border-white/5 space-y-3">
+                <p className="text-xs text-[#a0a0a0] leading-relaxed">
+                  Możesz zaimportować produkty masowo z pliku Excel (<code className="text-brand-gold font-mono bg-white/5 px-1 py-0.5 rounded">.xlsx</code>, <code className="text-brand-gold font-mono bg-white/5 px-1 py-0.5 rounded">.xls</code>) lub <code className="text-brand-gold font-mono bg-white/5 px-1 py-0.5 rounded">.csv</code>. System dopasuje kolumny automatycznie na podstawie nagłówków.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] bg-[#141414] p-3 rounded-lg border border-white/5 font-mono text-[#777]">
+                  <div><span className="text-white font-bold">Nazwa</span> (wymagane)</div>
+                  <div><span className="text-white font-bold">Kategoria</span> (wymagane)</div>
+                  <div><span className="text-[#a0a0a0]">Jednostka</span> (np. szt.)</div>
+                  <div><span className="text-[#a0a0a0]">Dostawca</span></div>
+                  <div><span className="text-[#a0a0a0]">SKU</span></div>
+                  <div><span className="text-[#a0a0a0]">Lokalizacja</span> (półka)</div>
+                  <div><span className="text-[#a0a0a0]">Stan początkowy</span></div>
+                  <div><span className="text-[#a0a0a0]">Min / Max stan</span></div>
+                </div>
+              </div>
+
+              {/* Input pliku */}
+              <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/10 rounded-xl hover:border-brand-gold/40 transition bg-[#121212]/50 relative group">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFileImportChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <span className="text-2xl mb-1">📁</span>
+                <span className="text-xs text-[#a0a0a0] font-semibold group-hover:text-brand-gold transition">Wybierz plik Excel lub przeciągnij go tutaj</span>
+                <span className="text-[10px] text-[#555] mt-1 font-mono">xlsx, xls, csv</span>
+              </div>
+
+              {importStatus && (
+                <div className={`p-3 rounded-lg border text-xs font-bold ${
+                  importStatus.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-brand-red/10 border-brand-red/20 text-brand-red'
+                }`}>
+                  {importStatus.text}
+                </div>
+              )}
+
+              {/* Podgląd przed importem */}
+              {importPreview.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Podgląd danych ({importPreview.length} wierszy)</h4>
+                  <div className="border border-white/5 rounded-lg overflow-hidden max-h-[250px] overflow-y-auto scrollbar-thin">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-white/5 border-b border-white/5 text-[#888] font-bold">
+                          <th className="p-2">Nazwa</th>
+                          <th className="p-2">Kategoria</th>
+                          <th className="p-2 text-center">Jedn.</th>
+                          <th className="p-2 text-right">Stan pocz.</th>
+                          <th className="p-2">Dostawca</th>
+                          <th className="p-2">Lokalizacja</th>
+                          <th className="p-2 text-center">Ważność</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 text-[#a0a0a0] bg-white/[0.01]">
+                        {importPreview.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-white/2">
+                            <td className="p-2 text-white font-semibold truncate max-w-[150px]" title={item.name}>{item.name}</td>
+                            <td className="p-2 truncate max-w-[100px]" title={item.categoryName}>{item.categoryName}</td>
+                            <td className="p-2 text-center">{item.unit}</td>
+                            <td className="p-2 text-right font-bold text-white">{item.initialStock}</td>
+                            <td className="p-2 truncate max-w-[100px]">{item.supplier || '-'}</td>
+                            <td className="p-2 truncate max-w-[100px]">{item.location || '-'}</td>
+                            <td className="p-2 text-center">{item.hasExpiry ? 'TAK' : 'NIE'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5 shrink-0">
+              <button
+                type="button"
+                onClick={() => { setShowImportModal(false); setImportPreview([]); setImportStatus(null); }}
+                className="px-4 py-2 bg-[#141414] hover:bg-[#222] border border-white/5 text-white text-xs font-bold rounded-lg uppercase tracking-wider cursor-pointer"
+              >
+                Zamknij
+              </button>
+              {importPreview.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleExecuteImport}
+                  disabled={actionLoading}
+                  className="px-5 py-2 bg-brand-gold hover:bg-yellow-500 text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider transition cursor-pointer"
+                >
+                  {actionLoading ? 'Trwa import...' : `Zatwierdź i Dodaj (${importPreview.length})`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL: SZCZEGÓŁOWY AUDYT OPERACJI (LUPKA)                      */}
+      {/* ------------------------------------------------------------- */}
+      {selectedHistoryItem && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass-card max-w-lg w-full bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 relative overflow-hidden animate-fadeIn">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-red via-brand-gold to-brand-red" />
+            
+            <div className="flex justify-between items-center border-b border-white/5 pb-3">
+              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Search className="w-4 h-4 text-brand-gold" />
+                <span>Szczegóły operacji</span>
+              </h3>
+              <button onClick={() => setSelectedHistoryItem(null)} className="text-[#555] hover:text-white transition cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 py-4 text-xs">
+              <div className="grid grid-cols-2 gap-3 bg-white/2 p-3 rounded-xl border border-white/5">
+                <div>
+                  <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Data i godzina</span>
+                  <span className="text-white font-mono font-bold">
+                    {new Date(selectedHistoryItem.date).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Typ operacji</span>
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase inline-block mt-0.5 ${
+                    selectedHistoryItem.type === 'delivery' 
+                      ? 'bg-green-500/10 text-green-400' 
+                      : selectedHistoryItem.type === 'issue'
+                        ? 'bg-brand-red/10 text-brand-red'
+                        : 'bg-brand-gold/10 text-brand-gold'
+                  }`}>
+                    {selectedHistoryItem.type === 'delivery' ? 'Przyjęcie dostawy' : selectedHistoryItem.type === 'issue' ? 'Wydanie na lokal' : 'Korekta stanu'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div>
+                  <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Produkt</span>
+                  <span className="text-white font-extrabold text-sm">{selectedHistoryItem.productName}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Ilość</span>
+                    <span className={`text-sm font-black ${selectedHistoryItem.quantity > 0 ? 'text-green-400' : 'text-brand-red'}`}>
+                      {selectedHistoryItem.quantity > 0 ? '+' : ''}{selectedHistoryItem.quantity} {selectedHistoryItem.unit}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Partia</span>
+                    <span className="text-white font-mono">{selectedHistoryItem.batchNumber || '-'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5 pt-3 space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Dostawca / Lokal docelowy</span>
+                    <span className="text-white font-bold">{selectedHistoryItem.source || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Zarejestrował(a)</span>
+                    <span className="text-white font-bold">{selectedHistoryItem.userName}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Uwagi</span>
+                  <p className="text-white bg-white/2 p-2.5 rounded-lg border border-white/5 italic whitespace-pre-wrap">{selectedHistoryItem.remarks || 'Brak uwag'}</p>
+                </div>
+              </div>
+
+              {/* Załącznik (faktura/paragon) */}
+              {selectedHistoryItem.attachmentUrl && (
+                <div className="border-t border-white/5 pt-3 space-y-2">
+                  <span className="text-[#666] block uppercase tracking-wider text-[9px] font-bold">Zdjęcie faktury / Paragonu</span>
+                  <div className="relative border border-white/10 rounded-xl overflow-hidden bg-black max-h-[180px] flex items-center justify-center group">
+                    <img 
+                      src={selectedHistoryItem.attachmentUrl} 
+                      alt="Faktura" 
+                      className="max-h-[180px] object-contain hover:scale-105 transition duration-300"
+                    />
+                    <a
+                      href={selectedHistoryItem.attachmentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white font-bold gap-2 transition cursor-pointer text-xs"
+                    >
+                      Otwórz w pełnym oknie
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-white/5">
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryItem(null)}
+                className="px-5 py-2 bg-[#141414] hover:bg-[#222] border border-white/5 text-white text-xs font-bold rounded-lg uppercase tracking-wider cursor-pointer"
+              >
+                Zamknij
+              </button>
+            </div>
           </div>
         </div>
       )}
