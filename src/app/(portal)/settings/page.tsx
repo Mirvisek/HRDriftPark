@@ -29,7 +29,8 @@ import {
   Bell,
   Clock,
   Palette,
-  Layers
+  Layers,
+  Save
 } from 'lucide-react';
 import { 
   getSettingsAction, 
