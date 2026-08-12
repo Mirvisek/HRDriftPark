@@ -143,6 +143,16 @@ export default function SettingsPage() {
     warehouse_suppliers: '',
     warehouse_locations: '',
     demo_mode_enabled: 'true',
+    sms_api_key: '',
+    sms_sender_name: 'DriftPark',
+    cron_availability_lock_day: '15',
+    cron_reminder_hour: '20',
+    require_delete_reason: 'true',
+    template_push_msg: 'Witaj {imie}! Przypominamy o jutrzejszym dyżurze w lokalu {lokal} o {godzina_start}.',
+    max_upload_size_mb: '10',
+    sound_notifications_enabled: 'true',
+    security_2fa_required: 'false',
+    holiday_dates: '2026-01-01, 2026-01-06, 2026-04-05, 2026-04-06, 2026-05-01, 2026-05-03, 2026-06-04, 2026-08-15, 2026-11-01, 2026-11-11, 2026-12-25, 2026-12-26',
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
@@ -1878,6 +1888,30 @@ export default function SettingsPage() {
                     <option value="365">Co rok</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Dwuetapowa weryfikacja 2FA (TOTP)
+                  </label>
+                  <select
+                    value={siteSettings.security_2fa_required}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, security_2fa_required: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
+                  >
+                    <option value="false">Opcjonalna dla pracowników</option>
+                    <option value="true">Wymagana dla kadry menedżerskiej</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Maksymalny rozmiar załączanych skanów/faktur (MB)
+                  </label>
+                  <input
+                    type="number"
+                    value={siteSettings.max_upload_size_mb}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, max_upload_size_mb: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  />
+                </div>
                 <div className="sm:col-span-2 pt-2 border-t border-white/5">
                   <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
                     Publiczny Tryb Demonstracyjny (/demo)
@@ -1897,6 +1931,127 @@ export default function SettingsPage() {
                     </span>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* ---- Integracja Bramki SMS ---- */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Bell className="w-4 h-4 text-emerald-400" />
+                <span>Integracja Bramki SMS (SMSAPI / Twilio)</span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Klucz API Bramki SMS
+                  </label>
+                  <input
+                    type="password"
+                    value={siteSettings.sms_api_key}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, sms_api_key: e.target.value }))}
+                    placeholder="Wpisz token API (SMSAPI.pl lub Twilio)"
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Nazwa nadawcy SMS (Pole Nadawcy)
+                  </label>
+                  <input
+                    type="text"
+                    value={siteSettings.sms_sender_name}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, sms_sender_name: e.target.value }))}
+                    placeholder="np. DriftPark"
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ---- Harmonogram Zadań CRON i Automatyzacje ---- */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-400" />
+                <span>Automatyzacje i Harmonogram CRON</span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Dzień zamrażania edycji dyspozycyjności
+                  </label>
+                  <select
+                    value={siteSettings.cron_availability_lock_day}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, cron_availability_lock_day: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  >
+                    <option value="10">10-ty dzień miesiąca</option>
+                    <option value="15">15-ty dzień miesiąca (domyślnie)</option>
+                    <option value="20">20-ty dzień miesiąca</option>
+                    <option value="25">25-ty dzień miesiąca</option>
+                  </select>
+                  <p className="mt-1 text-[10px] text-[#555] italic">Po tym dniu edycja własnej dostępności jest blokowana</p>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Godzina wysyłania przypomnień o dyżurze (CRON)
+                  </label>
+                  <select
+                    value={siteSettings.cron_reminder_hour}
+                    onChange={e => setSiteSettings(prev => ({ ...prev, cron_reminder_hour: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  >
+                    <option value="18">18:00 Dzień wcześniej</option>
+                    <option value="19">19:00 Dzień wcześniej</option>
+                    <option value="20">20:00 Dzień wcześniej (domyślnie)</option>
+                    <option value="21">21:00 Dzień wcześniej</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* ---- Szablony Powiadomień z Taganmi ---- */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-yellow-500" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Mail className="w-4 h-4 text-brand-gold" />
+                <span>Szablon Treści Powiadomień Przypominających</span>
+              </h3>
+
+              <div>
+                <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                  Treść powiadomienia Push/SMS (Obsługiwane tagi: &#123;imie&#125;, &#123;data&#125;, &#123;godzina_start&#125;, &#123;lokal&#125;)
+                </label>
+                <textarea
+                  rows={3}
+                  value={siteSettings.template_push_msg}
+                  onChange={e => setSiteSettings(prev => ({ ...prev, template_push_msg: e.target.value }))}
+                  className="w-full p-3 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-mono"
+                />
+              </div>
+            </div>
+
+            {/* ---- Kalendarz Świąt Państwowych ---- */}
+            <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 to-white" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-brand-red" />
+                <span>Kalendarz Świąt i Dni Wolnych (Oznaczane w Grafiku)</span>
+              </h3>
+
+              <div>
+                <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                  Daty dni wolnych (Format YYYY-MM-DD rozdzielone przecinkami)
+                </label>
+                <textarea
+                  rows={2}
+                  value={siteSettings.holiday_dates}
+                  onChange={e => setSiteSettings(prev => ({ ...prev, holiday_dates: e.target.value }))}
+                  className="w-full p-3 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-mono"
+                />
               </div>
             </div>
 
