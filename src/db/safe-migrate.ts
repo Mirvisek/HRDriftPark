@@ -19,6 +19,12 @@ if (fs.existsSync(envPath)) {
 
 import { sql } from 'drizzle-orm';
 
+function isDuplicateColumnError(e: any): boolean {
+  const code = e.code || e.originalError?.code;
+  const msg = String(e.message || '');
+  return code === 'ER_DUP_FIELDNAME' || msg.includes('Duplicate column name') || msg.includes('duplicate column');
+}
+
 async function main() {
   const { db } = await import("./index");
   const { users, salaryHistory } = await import("./schema");
@@ -31,7 +37,7 @@ async function main() {
     await db.execute(sql.raw("ALTER TABLE `work_schedule` ADD COLUMN `version` INT NOT NULL DEFAULT 1;"));
     console.log("[✓] Pomyślnie dodano kolumnę 'version' do 'work_schedule'.");
   } catch (e: any) {
-    if (e.code === 'ER_DUP_FIELDNAME') {
+    if (isDuplicateColumnError(e)) {
       console.log("[i] Kolumna 'version' w 'work_schedule' już istnieje.");
     } else {
       console.error("Błąd podczas dodawania kolumny 'version' do 'work_schedule':", e.message);
@@ -44,7 +50,7 @@ async function main() {
     await db.execute(sql.raw("ALTER TABLE `timesheets` ADD COLUMN `version` INT NOT NULL DEFAULT 1;"));
     console.log("[✓] Pomyślnie dodano kolumnę 'version' do 'timesheets'.");
   } catch (e: any) {
-    if (e.code === 'ER_DUP_FIELDNAME') {
+    if (isDuplicateColumnError(e)) {
       console.log("[i] Kolumna 'version' w 'timesheets' już istnieje.");
     } else {
       console.error("Błąd podczas dodawania kolumny 'version' do 'timesheets':", e.message);
@@ -57,7 +63,7 @@ async function main() {
     await db.execute(sql.raw("ALTER TABLE `users` ADD COLUMN `permissions` TEXT NOT NULL DEFAULT '';"));
     console.log("[✓] Pomyślnie dodano kolumnę 'permissions' do 'users'.");
   } catch (e: any) {
-    if (e.code === 'ER_DUP_FIELDNAME') {
+    if (isDuplicateColumnError(e)) {
       console.log("[i] Kolumna 'permissions' w 'users' już istnieje.");
     } else {
       console.error("Błąd podczas dodawania kolumny 'permissions' do 'users':", e.message);
@@ -276,7 +282,7 @@ async function main() {
       await db.execute(sql.raw(`ALTER TABLE \`${tbl}\` ADD COLUMN \`venue_id\` INT NULL;`));
       console.log(`[✓] Pomyślnie dodano kolumnę 'venue_id' do '${tbl}'.`);
     } catch (e: any) {
-      if (e.code === 'ER_DUP_FIELDNAME') {
+      if (isDuplicateColumnError(e)) {
         console.log(`[i] Kolumna 'venue_id' w '${tbl}' już istnieje.`);
       } else {
         console.error(`Błąd podczas dodawania kolumny 'venue_id' do '${tbl}':`, e.message);
@@ -296,7 +302,7 @@ async function main() {
     await db.execute(sql.raw("ALTER TABLE `warehouse_history` ADD COLUMN `attachment_url` TEXT NULL;"));
     console.log("[✓] Pomyślnie dodano kolumnę 'attachment_url' do 'warehouse_history'.");
   } catch (e: any) {
-    if (e.code === 'ER_DUP_FIELDNAME') {
+    if (isDuplicateColumnError(e)) {
       console.log("[i] Kolumna 'attachment_url' w 'warehouse_history' już istnieje.");
     } else {
       console.error("Błąd podczas dodawania kolumny 'attachment_url' do 'warehouse_history':", e.message);
