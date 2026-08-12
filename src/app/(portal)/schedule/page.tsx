@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { pdf } from '@react-pdf/renderer';
+import { SchedulePDFDocument } from '@/components/SchedulePDF';
 import { getWorkSchedule, saveWorkScheduleEntry, generateSchedule, ScheduleEntry, checkSchedulePublishedAction, publishScheduleAction } from '@/app/actions/scheduleActions';
 import { getEmployees, UserEntry } from '@/app/actions/userActions';
-import { CalendarDays, Save, Sparkles, RefreshCw, CheckCircle, ShieldAlert, AlertTriangle, Send, FileText, Check } from 'lucide-react';
+import { CalendarDays, Save, Sparkles, RefreshCw, CheckCircle, ShieldAlert, AlertTriangle, Send, FileText, Check, Download } from 'lucide-react';
 
 export default function SchedulePage() {
   const { data: session } = useSession();
@@ -285,6 +287,27 @@ export default function SchedulePage() {
               <span>Opublikuj grafik</span>
             </button>
           )}
+
+          <button
+            onClick={async () => {
+              try {
+                const doc = <SchedulePDFDocument monthName={monthNames[month]} year={year} entries={scheduleList} />;
+                const blob = await pdf(doc).toBlob();
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `Grafik_${monthNames[month]}_${year}.pdf`;
+                link.click();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                console.error("Błąd generowania PDF:", e);
+              }
+            }}
+            className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 text-brand-gold font-bold text-xs rounded-lg transition flex items-center gap-2 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Grafik PDF</span>
+          </button>
 
           <div className="flex bg-[#0a0a0a] border border-white/10 rounded-lg p-1">
             <button

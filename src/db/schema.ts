@@ -3,6 +3,8 @@ import { mysqlTable, int, varchar, text, boolean, timestamp, date, mysqlEnum, do
 export const venues = mysqlTable('venues', {
   id: int('id').primaryKey().autoincrement(),
   name: varchar('name', { length: 255 }).notNull().unique(),
+  colorAccent: varchar('color_accent', { length: 50 }).notNull().default('#ffd700'),
+  openingHoursConfig: text('opening_hours_config'), // JSON string: { "1": { "open": "15:00", "close": "20:00", "closed": false }, ... }
   createdAt: timestamp('created_at').defaultNow(),
 });
 

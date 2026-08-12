@@ -298,6 +298,19 @@ async function main() {
   }
 
   try {
+    console.log("Dodawanie kolumn 'color_accent' i 'opening_hours_config' do tabeli 'venues'...");
+    await db.execute(sql.raw("ALTER TABLE `venues` ADD COLUMN `color_accent` VARCHAR(50) NOT NULL DEFAULT '#ffd700';"));
+    await db.execute(sql.raw("ALTER TABLE `venues` ADD COLUMN `opening_hours_config` TEXT NULL;"));
+    console.log("[✓] Kolumny w 'venues' gotowe.");
+  } catch (e: any) {
+    if (isDuplicateColumnError(e)) {
+      console.log("[i] Kolumny w 'venues' już istnieją.");
+    } else {
+      console.error("Błąd podczas dodawania kolumn do 'venues':", e.message);
+    }
+  }
+
+  try {
     console.log("Tworzenie tabeli 'shift_checklist_templates'...");
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS \`shift_checklist_templates\` (

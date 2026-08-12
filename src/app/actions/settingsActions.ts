@@ -505,16 +505,24 @@ export async function getVenuesAction() {
 /**
  * Zapisuje lokal (nowy lub zmiana nazwy)
  */
-export async function saveVenueAction(id: number | null, name: string) {
+export async function saveVenueAction(id: number | null, name: string, colorAccent: string = '#ffd700', openingHoursConfig: string | null = null) {
   await checkAuth('settings:edit');
   if (!name || !name.trim()) return { success: false, error: "Nazwa lokalu jest wymagana." };
 
   try {
     if (id) {
-      await db.update(venues).set({ name: name.trim() }).where(eq(venues.id, id));
+      await db.update(venues).set({ 
+        name: name.trim(),
+        colorAccent: colorAccent || '#ffd700',
+        openingHoursConfig: openingHoursConfig || null
+      }).where(eq(venues.id, id));
       console.log(`[Settings] Zaktualizowano lokal ID: ${id} na: ${name}`);
     } else {
-      await db.insert(venues).values({ name: name.trim() });
+      await db.insert(venues).values({ 
+        name: name.trim(),
+        colorAccent: colorAccent || '#ffd700',
+        openingHoursConfig: openingHoursConfig || null
+      });
       console.log(`[Settings] Dodano nowy lokal: ${name}`);
     }
     return { success: true };
@@ -593,3 +601,164 @@ export async function uploadLogoAction(formData: FormData) {
     return { success: false, error: "Błąd zapisu pliku logo." };
   }
 }
+
+/**
+  * Pobiera historię stawek płacowych danego użytkownika z salary_history
+  */
+export async function getUserSalaryHistoryAction(userId: number) {
+  await checkAuth('settings:edit');
+  try {
+    const history = await db.select().from(salaryHistory).where(eq(salaryHistory.userId, userId));
+    return { success: true, history };
+  } catch (e: any) {
+    return { success: false, history: [], error: e.message };
+  }
+}
+
+/**
+  * Dodaje nową stawkę płacową do historii pracownika
+  */
+export async function addUserSalaryRateAction(userId: number, rate: number, validFrom: string) {
+  await checkAuth('settings:edit');
+  try {
+    if (isNaN(rate) || rate < 0) return { success: false, error: "Stawka musi być dodatnią liczbą." };
+    if (!validFrom) return { success: false, error: "Data rozpoczęcia stawki jest wymagana." };
+
+    await db.insert(salaryHistory).values({
+      userId,
+      hourlyRate: rate,
+      validFrom,
+      validTo: null
+    });
+
+    // Zaktualizuj także aktualną stawkę w tabeli users
+    await db.update(users).set({ hourlyRate: rate }).where(eq(users.id, userId));
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+  * Eksportuje pełną kopię zapasową bazy danych do obiektu JSON
+  */
+export async function exportDatabaseBackupAction() {
+  const session = await checkAuth('settings:edit');
+  if ((session.user as any).role !== 'owner') {
+    return { success: false, error: "Tylko Właściciel może pobrać kopię zapasową bazy." };
+  }
+
+  try {
+    const allUsers = await db.select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      displayName: users.displayName,
+      email: users.email,
+      role: users.role,
+      position: users.position,
+      hourlyRate: users.hourlyRate,
+      isDemo: users.isDemo
+    }).from(users);
+
+    const allVenues = await db.select().from(venues);
+    const allSchedule = await db.select().from(workSchedule);
+    const allTimesheets = await db.select().from(timesheets);
+    const allProducts = await db.select().from(warehouseProducts);
+    const allSettings = await db.select().from(settings);
+
+    const backupData = {
+      timestamp: new Date().toISOString(),
+      version: '0.1.0',
+      users: allUsers,
+      venues: allVenues,
+      workSchedule: allSchedule,
+      timesheets: allTimesheets,
+      warehouseProducts: allProducts,
+      settings: allSettings
+    };
+
+    return { success: true, json: JSON.stringify(backupData, null, 2) };
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia kopii zapasowej:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+  * Wywołuje ponowne zasilenie danych demo
+  */
+export async function resetDemoDataAction() {
+  await checkAuth('settings:edit');
+  try {
+    const { ensureDemoDataAction } = await import('./demoActions');
+    const result = await ensureDemoDataAction();
+    return result;
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+  * Wysyła testową wiadomość e-mail dla weryfikacji serwera SMTP
+  */
+export async function sendTestEmailAction(targetEmail: string) {
+  const session = await checkAuth('settings:edit');
+  if (!targetEmail || !targetEmail.trim()) return { success: false, error: "Podaj adres e-mail." };
+
+  try {
+    const nodemailer = (await import('nodemailer')).default;
+    const smtpHost = await getSetting('smtp_host', process.env.SMTP_HOST || '');
+    const smtpPort = Number(await getSetting('smtp_port', process.env.SMTP_PORT || '587'));
+    const smtpUser = await getSetting('smtp_user', process.env.SMTP_USER || '');
+    const smtpPass = await getSetting('smtp_pass', process.env.SMTP_PASS || '');
+    const smtpFrom = await getSetting('smtp_from', process.env.SMTP_FROM || 'powiadomienia@driftpark.pl');
+
+    if (!smtpHost || !smtpUser) {
+      return { success: false, error: "Brak skonfigurowanych ustawień SMTP w systemie." };
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass }
+    });
+
+    await transporter.sendMail({
+      from: `"Drift Park Extreme" <${smtpFrom}>`,
+      to: targetEmail.trim(),
+      subject: "Testowe powiadomienie e-mail z systemu Drift Park Extreme",
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; background: #0f0f0f; color: #fff; border-radius: 10px;">
+          <h2 style="color: #ffd700;">Test SMTP Udany!</h2>
+          <p>Witaj! Ta wiadomość potwierdza, że konfiguracja serwera SMTP w systemie Drift Park Extreme działa prawidłowo.</p>
+          <p style="font-size: 12px; color: #888;">Test wysłany przez: ${session.user.name} (${session.user.email})</p>
+        </div>
+      `
+    });
+
+    return { success: true };
+  } catch (e: any) {
+    console.error("Błąd wysyłki e-maila testowego:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+  * Usuwa przeczytane powiadomienia starsze niż 30 dni
+  */
+export async function purgeReadNotificationsAction() {
+  await checkAuth('settings:edit');
+  try {
+    const { notifications } = await import('@/db/schema');
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+
+    await db.delete(notifications).where(and(eq(notifications.isRead, true), sql`created_at < ${cutoff}`));
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+

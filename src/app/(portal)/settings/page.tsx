@@ -44,8 +44,15 @@ import {
   getVenuesAction,
   saveVenueAction,
   deleteVenueAction,
-  uploadLogoAction
+  uploadLogoAction,
+  exportDatabaseBackupAction,
+  sendTestEmailAction,
+  resetDemoDataAction,
+  purgeReadNotificationsAction,
+  getUserSalaryHistoryAction,
+  addUserSalaryRateAction
 } from '@/app/actions/settingsActions';
+import { getAuditLogsAction, purgeOldAuditLogsAction, AuditLogEntry } from '@/app/actions/auditActions';
 import { 
   getTaskTemplatesAction, 
   saveTaskTemplateAction, 
@@ -88,11 +95,17 @@ const getDefaultPermissionsForRole = (role: string): string => {
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'smtp' | 'tasks' | 'venues' | 'site'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'smtp' | 'tasks' | 'venues' | 'site' | 'audit' | 'backup' | 'automation'>('users');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Dane audytu i kopii zapasowej
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [userSalaryHistory, setUserSalaryHistory] = useState<any[]>([]);
+  const [newSalaryRate, setNewSalaryRate] = useState({ rate: '', validFrom: '' });
 
   // Dane użytkowników
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -134,8 +147,9 @@ export default function SettingsPage() {
 
   // Lokale
   const [venuesList, setVenuesList] = useState<any[]>([]);
-  const [newVenueName, setNewVenueName] = useState('');
   const [editingVenueId, setEditingVenueId] = useState<number | null>(null);
+  const [newVenueName, setNewVenueName] = useState('');
+  const [venueColor, setVenueColor] = useState('#ffd700');
 
   // Szablony zadań stałych
   const [templatesList, setTemplatesList] = useState<any[]>([]);
@@ -521,6 +535,37 @@ export default function SettingsPage() {
           >
             <Globe className="w-4 h-4" />
             <span>Ustawienia Strony</span>
+          </button>
+        )}
+        {hasPermission(session?.user, 'settings:edit') && (
+          <button
+            onClick={async () => {
+              setActiveTab('audit');
+              setStatusMsg(null);
+              const res = await getAuditLogsAction();
+              if (res.success) setAuditLogs(res.data);
+            }}
+            className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+              activeTab === 'audit'
+                ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+                : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Audyt Zdarzeń</span>
+          </button>
+        )}
+        {hasPermission(session?.user, 'settings:edit') && (
+          <button
+            onClick={() => { setActiveTab('backup'); setStatusMsg(null); }}
+            className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+              activeTab === 'backup'
+                ? 'border-brand-gold text-white bg-white/5 rounded-t-lg'
+                : 'border-transparent text-[#a0a0a0] hover:text-white hover:bg-white/2'
+            }`}
+          >
+            <Lock className="w-4 h-4" />
+            <span>Kopia Zapasowa & Bezpieczeństwo</span>
           </button>
         )}
       </div>
@@ -1392,10 +1437,11 @@ export default function SettingsPage() {
                   if (!newVenueName.trim()) return;
                   setActionLoading(true);
                   try {
-                    const res = await saveVenueAction(editingVenueId, newVenueName);
+                    const res = await saveVenueAction(editingVenueId, newVenueName, venueColor);
                     if (res.success) {
-                      setStatusMsg({ type: 'success', text: editingVenueId ? 'Zmieniono nazwę lokalu.' : 'Dodano nowy lokal.' });
+                      setStatusMsg({ type: 'success', text: editingVenueId ? 'Zaktualizowano dane lokalu.' : 'Dodano nowy lokal.' });
                       setNewVenueName('');
+                      setVenueColor('#ffd700');
                       setEditingVenueId(null);
                       const vRes = await getVenuesAction();
                       if (vRes.success) setVenuesList(vRes.venues || []);
@@ -1844,13 +1890,146 @@ export default function SettingsPage() {
                   <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-brand-dark" />
                 ) : (
                   <>
-                    <Check className="w-4 h-4" />
-                    Zapisz Ustawienia Strony
+                    <Save className="w-4 h-4" />
+                    <span>Zapisz Ustawienia Strony</span>
                   </>
                 )}
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Zawartość Zakładki: AUDYT ZDARZEŃ */}
+      {activeTab === 'audit' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center bg-[#141414] p-4 rounded-xl border border-white/10">
+            <div>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Historia Logów Audytu</h3>
+              <p className="text-xs text-[#888]">Ostatnie 100 operacji zarejestrowanych w systemie.</p>
+            </div>
+            <button
+              onClick={async () => {
+                if (confirm("Czy na pewno chcesz usunąć logi audytowe starsze niż 6 miesięcy?")) {
+                  const res = await purgeOldAuditLogsAction(6);
+                  if (res.success) {
+                    alert("Pomyślnie wyczyszczono stare logi.");
+                    const logsRes = await getAuditLogsAction();
+                    if (logsRes.success) setAuditLogs(logsRes.data);
+                  }
+                }
+              }}
+              className="px-3 py-1.5 bg-brand-red/10 border border-brand-red/30 text-brand-red text-xs font-bold rounded-lg hover:bg-brand-red/20 transition"
+            >
+              Wyczyszczenie logów &gt; 6 mies.
+            </button>
+          </div>
+
+          <div className="overflow-x-auto glass-card rounded-2xl border border-white/10">
+            <table className="w-full text-left text-xs text-[#e0e0e0]">
+              <thead className="bg-[#161616] text-[#888] uppercase text-[10px] font-bold border-b border-white/10">
+                <tr>
+                  <th className="p-3">Data</th>
+                  <th className="p-3">Wykonawca</th>
+                  <th className="p-3">Tabela</th>
+                  <th className="p-3">Akcja</th>
+                  <th className="p-3">ID Rekordu</th>
+                  <th className="p-3">Szczegóły JSON</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-[#666]">Brak zarejestrowanych logów audytu.</td>
+                  </tr>
+                ) : (
+                  auditLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-white/2">
+                      <td className="p-3 font-mono">{log.createdAt ? new Date(log.createdAt).toLocaleString('pl-PL') : '—'}</td>
+                      <td className="p-3 font-bold text-white">{log.executorName || `ID ${log.executorId || 'System'}`}</td>
+                      <td className="p-3"><span className="px-2 py-0.5 rounded bg-white/5 font-mono text-[10px]">{log.tableName}</span></td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                          log.action === 'INSERT' ? 'bg-green-500/10 text-green-400' :
+                          log.action === 'UPDATE' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-brand-red/10 text-brand-red'
+                        }`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="p-3 font-mono">#{log.recordId}</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => alert(`Stare dane:\n${log.oldData || 'Brak'}\n\nNowe dane:\n${log.newData || 'Brak'}`)}
+                          className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] font-bold text-brand-gold"
+                        >
+                          Podgląd Before/After
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Zawartość Zakładki: KOPIA ZAPASOWA & BEZPIECZEŃSTWO */}
+      {activeTab === 'backup' && (
+        <div className="space-y-6">
+          <div className="glass-card p-6 rounded-2xl border border-white/10 space-y-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Lock className="w-4 h-4 text-brand-gold" />
+              <span>Kopia Zapasowa Bazy Danych</span>
+            </h3>
+            <p className="text-xs text-[#a0a0a0]">
+              Pobierz pełną kopię zapasową danych z tabel pracowników, grafików, kart pracy, magazynu oraz ustawień do pliku w formacie JSON.
+            </p>
+            <button
+              onClick={async () => {
+                const res = await exportDatabaseBackupAction();
+                if (res.success && res.json) {
+                  const blob = new Blob([res.json], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = `DriftPark_Backup_${new Date().toISOString().split('T')[0]}.json`;
+                  link.click();
+                  URL.revokeObjectURL(url);
+                } else {
+                  alert(res.error || 'Błąd generowania kopii zapasowej.');
+                }
+              }}
+              className="px-5 py-2.5 bg-gradient-to-r from-brand-gold to-yellow-600 text-brand-dark font-extrabold text-xs rounded-xl hover:opacity-95 transition flex items-center gap-2 cursor-pointer shadow-lg shadow-brand-gold/10"
+            >
+              <span>Pobierz Kopię Zapasową (JSON)</span>
+            </button>
+          </div>
+
+          <div className="glass-card p-6 rounded-2xl border border-brand-red/20 bg-brand-red/5 space-y-4">
+            <h3 className="text-sm font-bold text-brand-red uppercase tracking-wider flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              <span>Reset Danych w Trybie Demo</span>
+            </h3>
+            <p className="text-xs text-[#a0a0a0]">
+              Zresetuj wszystkie dane testowe w trybie demo do początkowego stanu fabrycznego.
+            </p>
+            <button
+              onClick={async () => {
+                if (confirm("Czy na pewno chcesz przywrócić fabryczne dane testowe w trybie Demo?")) {
+                  const res = await resetDemoDataAction();
+                  if (res.success) {
+                    alert("Dane demo zostały pomyślnie zresetowane.");
+                  } else {
+                    alert(res.error || "Błąd resetu danych demo.");
+                  }
+                }
+              }}
+              className="px-5 py-2.5 bg-brand-red/20 border border-brand-red/40 text-brand-red font-extrabold text-xs rounded-xl hover:bg-brand-red/30 transition flex items-center gap-2 cursor-pointer"
+            >
+              <span>Przywróć Dane Testowe Demo</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
