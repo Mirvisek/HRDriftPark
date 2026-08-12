@@ -615,11 +615,11 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
       .set({ status: 'submitted' })
       .where(eq(warehouseInventories.id, inventoryId));
       
+    const todayStr = new Date().toISOString().split('T')[0];
+    const execUser = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const userName = execUser.length > 0 ? execUser[0].displayName : 'Pracownik';
+
     if (inv[0].type === 'spot') {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const execUser = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-      const userName = execUser.length > 0 ? execUser[0].displayName : 'Pracownik';
-      
       await db.update(shiftTasks)
         .set({ 
           isCompleted: true,
@@ -631,6 +631,19 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
           eq(shiftTasks.date, todayStr),
           eq(shiftTasks.venueId, userVenueId),
           sql`title LIKE '%Inwentaryzacja wybiórcza%'`
+        ));
+    } else if (inv[0].type === 'full') {
+      await db.update(shiftTasks)
+        .set({ 
+          isCompleted: true,
+          completedBy: userId,
+          completedByName: userName,
+          completedAt: new Date()
+        })
+        .where(and(
+          eq(shiftTasks.date, todayStr),
+          eq(shiftTasks.venueId, userVenueId),
+          sql`title LIKE '%Cotygodniowa pełna inwentaryzacja%'`
         ));
     }
     

@@ -757,9 +757,9 @@ export default function WarehousePage() {
         {[
           { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
           { id: 'products', label: 'Katalog produktów', icon: Package },
-          { id: 'deliveries', label: 'Dostawy / Przyjęcia', icon: ArrowUpRight },
-          { id: 'issues', label: 'Wydania na lokale', icon: ArrowDownRight },
-          { id: 'inventories', label: 'Inwentaryzacje', icon: ClipboardCheck },
+          ...(canDeliver ? [{ id: 'deliveries', label: 'Dostawy / Przyjęcia', icon: ArrowUpRight }] : []),
+          ...(canIssue ? [{ id: 'issues', label: 'Wydania na lokale', icon: ArrowDownRight }] : []),
+          ...(canInventory ? [{ id: 'inventories', label: 'Inwentaryzacje', icon: ClipboardCheck }] : []),
           ...(canManage ? [{ id: 'categories', label: 'Kategorie', icon: Layers }] : []),
           { id: 'history', label: 'Historia operacji', icon: Clock }
         ].map((tab) => {
@@ -1455,12 +1455,13 @@ export default function WarehousePage() {
                     <th className="pb-3">Dostawca</th>
                     <th className="pb-3">Użytkownik</th>
                     <th className="pb-3">Uwagi</th>
+                    <th className="pb-3 text-center">Załącznik</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs text-[#a0a0a0]">
                   {history.filter(h => h.type === 'delivery').length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-6 text-center italic text-[#555]">Brak danych w historii dostaw.</td>
+                      <td colSpan={7} className="py-6 text-center italic text-[#555]">Brak danych w historii dostaw.</td>
                     </tr>
                   ) : (
                     history.filter(h => h.type === 'delivery').map(h => (
@@ -1473,6 +1474,21 @@ export default function WarehousePage() {
                         <td className="py-3 text-[11px] font-bold text-white">{h.source}</td>
                         <td className="py-3 text-[11px]">{h.userName}</td>
                         <td className="py-3 text-[10px] text-[#666] max-w-[150px] truncate" title={h.remarks}>{h.remarks || '-'}</td>
+                        <td className="py-3 text-center">
+                          {h.attachmentUrl ? (
+                            <a
+                              href={h.attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-brand-gold hover:text-yellow-400 font-bold transition text-[10px] uppercase"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Pokaż</span>
+                            </a>
+                          ) : (
+                            <span className="text-[#444] text-[10px] italic">Brak</span>
+                          )}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -2037,12 +2053,13 @@ export default function WarehousePage() {
                     <th className="p-4">Dostawca / Lokal docelowy</th>
                     <th className="p-4">Użytkownik</th>
                     <th className="p-4">Uwagi</th>
+                    <th className="p-4 text-center">Faktura</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs text-[#a0a0a0]">
                   {filteredHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center italic text-[#555]">Brak danych w historii operacji magazynowych.</td>
+                      <td colSpan={8} className="p-8 text-center italic text-[#555]">Brak danych w historii operacji magazynowych.</td>
                     </tr>
                   ) : (
                     filteredHistory.map((h) => {
@@ -2078,6 +2095,21 @@ export default function WarehousePage() {
                           <td className="p-4 font-bold text-white">{h.source || '-'}</td>
                           <td className="p-4 text-[11px]">{h.userName}</td>
                           <td className="p-4 text-[11px] text-[#555] max-w-[200px] truncate" title={h.remarks}>{h.remarks || '-'}</td>
+                          <td className="p-4 text-center">
+                            {h.attachmentUrl ? (
+                              <a
+                                href={h.attachmentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-brand-gold hover:text-yellow-400 font-bold transition text-[10px] uppercase"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Pokaż</span>
+                              </a>
+                            ) : (
+                              <span className="text-[#444] text-[10px] italic">Brak</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })

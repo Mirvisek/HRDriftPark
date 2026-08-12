@@ -152,13 +152,13 @@ export async function createUserAction(userData: {
     let userPermissions = permissions;
     if (userPermissions === undefined) {
       if (role === 'owner') {
-        userPermissions = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send";
+        userPermissions = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
       } else if (role === 'manager') {
-        userPermissions = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send";
+        userPermissions = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory";
       } else if (role === 'technik') {
-        userPermissions = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send";
+        userPermissions = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
       } else {
-        userPermissions = "schedule:view,timesheet:view_own,tasks:view";
+        userPermissions = "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory";
       }
     }
 

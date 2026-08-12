@@ -81,7 +81,7 @@ const getDefaultPermissionsForRole = (role: string): string => {
   if (role === 'technik') {
     return "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
   }
-  return "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue";
+  return "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory";
 };
 
 export default function SettingsPage() {
@@ -106,7 +106,7 @@ export default function SettingsPage() {
     position: 'Pracownik toru',
     birthDate: '',
     hourlyRate: 0,
-    permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue',
+    permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory',
     venueId: 1,
   });
 
@@ -249,7 +249,7 @@ export default function SettingsPage() {
           position: 'Pracownik toru',
           birthDate: '',
           hourlyRate: 0,
-          permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue',
+          permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory',
           venueId: 1,
         });
         // Ponowne załadowanie listy

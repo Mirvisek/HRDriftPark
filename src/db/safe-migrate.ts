@@ -335,7 +335,7 @@ async function main() {
         } else if (u.role === 'technik') {
           defaultPerms = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
         } else if (u.role === 'employee') {
-          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:issue";
+          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory";
         }
 
         console.log(`-> Nadawanie domyślnych uprawnień dla ${u.displayName} (${u.role}): ${defaultPerms}`);
