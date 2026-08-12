@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { users, settings, salaryHistory, venues, workSchedule, timesheets, warehouseProducts } from "@/db/schema";
-import { eq, ne, and, isNull } from "drizzle-orm";
+import { eq, ne, and, isNull, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
 import { sendMail, getSetting } from "@/lib/mail";
