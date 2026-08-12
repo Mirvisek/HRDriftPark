@@ -1,7 +1,8 @@
 import cron from 'node-cron';
 import { db } from '@/db';
-import { timesheets, users } from '@/db/schema';
+import { notifications, timesheets, users, shiftCashReconciliations, shiftChecklistItems, shiftChecklists, shiftReports, workSchedule } from '@/db/schema';
 import { eq, like, and } from 'drizzle-orm';
+import type { TimesheetEntry } from '@/app/actions/timesheetActions';
 
 export function initCronJobs() {
   // Sprawdzamy czy nie jesteśmy w przeglądarce
@@ -54,7 +55,7 @@ export function initCronJobs() {
         const res = await getAllTimesheets(year, month);
         if (res.success && res.data) {
           // Pogrupuj wpisy dla każdego pracownika i sprawdź konflikty
-          const userEntriesMap: Record<number, any[]> = {};
+          const userEntriesMap: Record<number, TimesheetEntry[]> = {};
           res.data.forEach(e => {
             if (!userEntriesMap[e.userId]) userEntriesMap[e.userId] = [];
             userEntriesMap[e.userId].push(e);
@@ -176,6 +177,36 @@ export function initCronJobs() {
     } catch (err) {
       console.error("[CRON] Błąd podczas wysyłania przypomnień o dyżurach:", err);
     }
+  });
+
+  // 4. Przypomnienie o niedomkniętej zmianie — codziennie o 21:30.
+  cron.schedule('30 21 * * *', async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const plans = await db.select().from(workSchedule).where(eq(workSchedule.date, today));
+      for (const plan of plans) {
+        if (plan.isClosed) continue;
+        const recipients = [plan.leadUserId, plan.supportUserId].filter((id): id is number => Boolean(id));
+        if (recipients.length === 0) continue;
+        const [cash] = await db.select({ id: shiftCashReconciliations.id }).from(shiftCashReconciliations)
+          .where(and(eq(shiftCashReconciliations.date, today), eq(shiftCashReconciliations.venueId, plan.venueId || 1), eq(shiftCashReconciliations.isDemo, plan.isDemo))).limit(1);
+        const [report] = await db.select({ id: shiftReports.id }).from(shiftReports)
+          .where(and(eq(shiftReports.date, today), eq(shiftReports.venueId, plan.venueId || 1), eq(shiftReports.isDemo, plan.isDemo))).limit(1);
+        const closingItems = await db.select({ status: shiftChecklistItems.status }).from(shiftChecklistItems)
+          .innerJoin(shiftChecklists, eq(shiftChecklistItems.checklistId, shiftChecklists.id))
+          .where(and(eq(shiftChecklists.date, today), eq(shiftChecklists.type, 'closing'), eq(shiftChecklists.venueId, plan.venueId || 1), eq(shiftChecklists.isDemo, plan.isDemo)));
+        const missing: string[] = [];
+        if (!cash) missing.push('rozliczenie kasy');
+        if (!report) missing.push('raport zmiany');
+        if (closingItems.length > 0 && closingItems.some(item => item.status === 'pending')) missing.push('checklista zamknięcia');
+        if (missing.length) {
+          const message = `Przypomnienie: przed końcem zmiany uzupełnij: ${missing.join(', ')}.`;
+          for (const userId of recipients) {
+            await db.insert(notifications).values({ userId, message, isRead: false, isDemo: plan.isDemo });
+          }
+        }
+      }
+    } catch (error) { console.error('[CRON] Błąd przypomnienia o zamknięciu zmiany:', error); }
   });
 }
 export default initCronJobs;

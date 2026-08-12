@@ -16,9 +16,11 @@ import {
   X,
   Settings,
   ClipboardList,
+  ClipboardCheck,
   DollarSign,
   Bell,
-  Package
+  Package,
+  Sun
 } from "lucide-react";
 import { SignOutButton } from "@/components/SignOutButton";
 import { getNotifications, markNotificationsAsReadAction } from "@/app/actions/userActions";
@@ -92,6 +94,16 @@ export function Navigation({ user }: NavigationProps) {
   }, []);
 
   const navLinks = [
+    {
+      href: "/today",
+      label: "Dzisiaj",
+      icon: Sun,
+    },
+    {
+      href: "/checklists",
+      label: "Checklisty",
+      icon: ClipboardCheck,
+    },
     {
       href: "/tasks",
       label: "Zadania",

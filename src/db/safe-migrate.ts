@@ -252,6 +252,85 @@ async function main() {
     console.error("Błąd podczas tworzenia tabeli 'venues':", e.message);
   }
 
+  // 4.8. Checklisty otwarcia i zamknięcia zmiany
+  try {
+    console.log("Tworzenie tabeli 'shift_checklists'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`shift_checklists\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`date\` DATE NOT NULL,
+        \`type\` ENUM('opening', 'closing') NOT NULL,
+        \`venue_id\` INT NOT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`shift_checklists_daily_unique\` (\`date\`, \`type\`, \`venue_id\`, \`is_demo\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'shift_checklists' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'shift_checklists':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'shift_checklist_items'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`shift_checklist_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`checklist_id\` INT NOT NULL,
+        \`item_key\` VARCHAR(100) NOT NULL,
+        \`title\` VARCHAR(500) NOT NULL,
+        \`section\` VARCHAR(100) NOT NULL,
+        \`sort_order\` INT NOT NULL,
+        \`due_minutes_before_close\` INT NULL,
+        \`status\` ENUM('pending', 'completed', 'not_applicable', 'problem') NOT NULL DEFAULT 'pending',
+        \`note\` TEXT NULL,
+        \`completed_by\` INT NULL,
+        \`completed_by_name\` VARCHAR(255) NULL,
+        \`completed_at\` TIMESTAMP NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`shift_checklist_item_unique\` (\`checklist_id\`, \`item_key\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'shift_checklist_items' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'shift_checklist_items':", e.message);
+  }
+
+  try {
+    console.log("Tworzenie tabeli 'shift_cash_reconciliations'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`shift_cash_reconciliations\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY, \`date\` DATE NOT NULL, \`venue_id\` INT NOT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0, \`opening_cash\` DOUBLE NOT NULL DEFAULT 0,
+        \`closing_cash\` DOUBLE NOT NULL DEFAULT 0, \`fiscal_report\` DOUBLE NOT NULL DEFAULT 0,
+        \`terminal_report\` DOUBLE NOT NULL DEFAULT 0, \`blik_report\` DOUBLE NOT NULL DEFAULT 0,
+        \`cash_to_bag\` DOUBLE NOT NULL DEFAULT 0, \`event_cash\` DOUBLE NOT NULL DEFAULT 0,
+        \`cash_operations\` DOUBLE NOT NULL DEFAULT 0, \`check_amount\` DOUBLE NOT NULL DEFAULT 0,
+        \`operations_description\` TEXT NULL, \`difference_description\` TEXT NULL,
+        \`completed_by\` INT NOT NULL, \`completed_by_name\` VARCHAR(255) NOT NULL,
+        \`completed_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`shift_cash_reconciliations_daily_unique\` (\`date\`, \`venue_id\`, \`is_demo\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'shift_cash_reconciliations' gotowa.");
+  } catch (e: any) { console.error("Błąd podczas tworzenia tabeli 'shift_cash_reconciliations':", e.message); }
+
+  try {
+    console.log("Tworzenie tabeli 'shift_reports'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`shift_reports\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY, \`date\` DATE NOT NULL, \`venue_id\` INT NOT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0, \`intensity\` ENUM('calm', 'standard', 'busy') NOT NULL DEFAULT 'standard',
+        \`incidents\` TEXT NULL, \`equipment_notes\` TEXT NULL, \`stock_notes\` TEXT NULL, \`handover_notes\` TEXT NULL,
+        \`completed_by\` INT NOT NULL, \`completed_by_name\` VARCHAR(255) NOT NULL,
+        \`completed_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`shift_reports_daily_unique\` (\`date\`, \`venue_id\`, \`is_demo\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'shift_reports' gotowa.");
+  } catch (e: any) { console.error("Błąd podczas tworzenia tabeli 'shift_reports':", e.message); }
+
   // Wstawienie domyślnego lokalu, jeśli tabela venues jest pusta
   try {
     const existingVenues = await db.execute(sql.raw("SELECT COUNT(*) as count FROM `venues`;"));

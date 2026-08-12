@@ -8,6 +8,7 @@ export const authConfig = {
         token.role = (user as any).role;
         token.position = (user as any).position;
         token.isDemo = (user as any).isDemo;
+        token.venueId = (user as any).venueId;
         token.mustChangePassword = (user as any).mustChangePassword;
         token.rememberMe = (user as any).rememberMe;
         token.permissions = (user as any).permissions;
@@ -26,6 +27,7 @@ export const authConfig = {
         (session.user as any).role = token.role;
         (session.user as any).position = token.position;
         (session.user as any).isDemo = token.isDemo;
+        (session.user as any).venueId = token.venueId;
         (session.user as any).mustChangePassword = token.mustChangePassword;
         (session.user as any).permissions = token.permissions;
       }

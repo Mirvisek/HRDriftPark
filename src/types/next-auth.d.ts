@@ -7,6 +7,7 @@ declare module "next-auth" {
       role: 'owner' | 'manager' | 'employee' | 'technik';
       position: string;
       isDemo: boolean;
+      venueId?: number | null;
       mustChangePassword?: boolean;
     } & DefaultSession["user"];
   }
@@ -15,6 +16,7 @@ declare module "next-auth" {
     role: 'owner' | 'manager' | 'employee' | 'technik';
     position: string;
     isDemo: boolean;
+    venueId?: number | null;
     mustChangePassword?: boolean;
   }
 }
@@ -24,6 +26,7 @@ declare module "next-auth/jwt" {
     role: 'owner' | 'manager' | 'employee' | 'technik';
     position: string;
     isDemo: boolean;
+    venueId?: number | null;
     mustChangePassword?: boolean;
   }
 }

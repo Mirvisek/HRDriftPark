@@ -115,6 +115,68 @@ export const shiftTasks = mysqlTable('shift_tasks', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const shiftChecklists = mysqlTable('shift_checklists', {
+  id: int('id').primaryKey().autoincrement(),
+  date: date('date', { mode: 'string' }).notNull(),
+  type: mysqlEnum('type', ['opening', 'closing']).notNull(),
+  venueId: int('venue_id').notNull(),
+  isDemo: boolean('is_demo').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+});
+
+export const shiftChecklistItems = mysqlTable('shift_checklist_items', {
+  id: int('id').primaryKey().autoincrement(),
+  checklistId: int('checklist_id').notNull(),
+  itemKey: varchar('item_key', { length: 100 }).notNull(),
+  title: varchar('title', { length: 500 }).notNull(),
+  section: varchar('section', { length: 100 }).notNull(),
+  sortOrder: int('sort_order').notNull(),
+  dueMinutesBeforeClose: int('due_minutes_before_close'),
+  status: mysqlEnum('status', ['pending', 'completed', 'not_applicable', 'problem']).notNull().default('pending'),
+  note: text('note'),
+  completedBy: int('completed_by'),
+  completedByName: varchar('completed_by_name', { length: 255 }),
+  completedAt: timestamp('completed_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const shiftCashReconciliations = mysqlTable('shift_cash_reconciliations', {
+  id: int('id').primaryKey().autoincrement(),
+  date: date('date', { mode: 'string' }).notNull(),
+  venueId: int('venue_id').notNull(),
+  isDemo: boolean('is_demo').notNull().default(false),
+  openingCash: double('opening_cash').notNull().default(0),
+  closingCash: double('closing_cash').notNull().default(0),
+  fiscalReport: double('fiscal_report').notNull().default(0),
+  terminalReport: double('terminal_report').notNull().default(0),
+  blikReport: double('blik_report').notNull().default(0),
+  cashToBag: double('cash_to_bag').notNull().default(0),
+  eventCash: double('event_cash').notNull().default(0),
+  cashOperations: double('cash_operations').notNull().default(0),
+  checkAmount: double('check_amount').notNull().default(0),
+  operationsDescription: text('operations_description'),
+  differenceDescription: text('difference_description'),
+  completedBy: int('completed_by').notNull(),
+  completedByName: varchar('completed_by_name', { length: 255 }).notNull(),
+  completedAt: timestamp('completed_at').defaultNow().onUpdateNow(),
+});
+
+export const shiftReports = mysqlTable('shift_reports', {
+  id: int('id').primaryKey().autoincrement(),
+  date: date('date', { mode: 'string' }).notNull(),
+  venueId: int('venue_id').notNull(),
+  isDemo: boolean('is_demo').notNull().default(false),
+  intensity: mysqlEnum('intensity', ['calm', 'standard', 'busy']).notNull().default('standard'),
+  incidents: text('incidents'),
+  equipmentNotes: text('equipment_notes'),
+  stockNotes: text('stock_notes'),
+  handoverNotes: text('handover_notes'),
+  completedBy: int('completed_by').notNull(),
+  completedByName: varchar('completed_by_name', { length: 255 }).notNull(),
+  completedAt: timestamp('completed_at').defaultNow().onUpdateNow(),
+});
+
 export const auditLogs = mysqlTable('audit_logs', {
   id: int('id').primaryKey().autoincrement(),
   userId: int('user_id'), // Kto dokonał zmiany
@@ -206,4 +268,3 @@ export const warehouseInventoryItems = mysqlTable('warehouse_inventory_items', {
   difference: double('difference'),
   remarks: text('remarks'),
 });
-
