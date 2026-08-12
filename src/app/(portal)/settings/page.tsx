@@ -1947,7 +1947,7 @@ export default function SettingsPage() {
                   auditLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-white/2">
                       <td className="p-3 font-mono">{log.createdAt ? new Date(log.createdAt).toLocaleString('pl-PL') : '—'}</td>
-                      <td className="p-3 font-bold text-white">{log.executorName || `ID ${log.executorId || 'System'}`}</td>
+                      <td className="p-3 font-bold text-white">{log.executorName || `ID ${log.userId || 'System'}`}</td>
                       <td className="p-3"><span className="px-2 py-0.5 rounded bg-white/5 font-mono text-[10px]">{log.tableName}</span></td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
