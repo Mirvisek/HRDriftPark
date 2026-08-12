@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Calendar, Check, CheckCircle2, ClipboardCheck, Clock, Flag, MinusCircle, RefreshCw, TriangleAlert } from 'lucide-react';
+import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { AlertCircle, Calendar, Check, CheckCircle2, ClipboardCheck, Clock, Flag, MinusCircle, RefreshCw, Settings2, TriangleAlert } from 'lucide-react';
 import { ChecklistItemStatus, ChecklistType, getChecklistAction, updateChecklistItemAction } from '@/app/actions/checklistActions';
 
 type ChecklistItem = {
@@ -23,6 +25,7 @@ const statusStyle: Record<ChecklistItemStatus, string> = {
 };
 
 export default function ChecklistsPage() {
+  const { data: session } = useSession();
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [type, setType] = useState<ChecklistType>('opening');
   const [items, setItems] = useState<ChecklistItem[]>([]);
@@ -82,6 +85,8 @@ export default function ChecklistsPage() {
     if (minutes === null) return null;
     return minutes === 0 ? 'na zamknięcie' : `${minutes} min przed`;
   };
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const canManage = role === 'owner' || role === 'manager' || role === 'technik';
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -93,6 +98,7 @@ export default function ChecklistsPage() {
           <p className="text-xs text-[#a0a0a0] mt-1">Wykonuj czynności otwarcia i zamknięcia. Problemy wymagają opisu.</p>
         </div>
         <div className="flex items-center gap-2">
+          {canManage && <Link href="/checklists/manage" className="px-3 py-2 rounded-lg border border-brand-gold/30 text-brand-gold text-xs font-bold flex items-center gap-1"><Settings2 className="w-4 h-4" />Edytuj listę</Link>}
           <Calendar className="w-4 h-4 text-brand-gold" />
           <input type="date" value={date} onChange={event => setDate(event.target.value)} className="px-3 py-2 bg-[#0a0a0a] border border-white/10 rounded-lg text-xs text-white font-bold focus:outline-none focus:border-brand-gold" />
         </div>

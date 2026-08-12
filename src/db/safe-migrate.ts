@@ -298,6 +298,21 @@ async function main() {
   }
 
   try {
+    console.log("Tworzenie tabeli 'shift_checklist_templates'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`shift_checklist_templates\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY, \`type\` ENUM('opening', 'closing') NOT NULL,
+        \`item_key\` VARCHAR(100) NOT NULL, \`title\` VARCHAR(500) NOT NULL, \`section\` VARCHAR(100) NOT NULL,
+        \`sort_order\` INT NOT NULL, \`due_minutes_before_close\` INT NULL, \`venue_id\` INT NOT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0, \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`shift_checklist_template_unique\` (\`type\`, \`item_key\`, \`venue_id\`, \`is_demo\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'shift_checklist_templates' gotowa.");
+  } catch (e: any) { console.error("Błąd podczas tworzenia tabeli 'shift_checklist_templates':", e.message); }
+
+  try {
     console.log("Tworzenie tabeli 'shift_cash_reconciliations'...");
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS \`shift_cash_reconciliations\` (

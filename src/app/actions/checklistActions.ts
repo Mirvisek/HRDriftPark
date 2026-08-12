@@ -3,7 +3,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { auth } from '@/auth';
 import { db } from '@/db';
-import { shiftChecklistItems, shiftChecklists } from '@/db/schema';
+import { shiftChecklistItems, shiftChecklists, shiftChecklistTemplates } from '@/db/schema';
 
 export type ChecklistType = 'opening' | 'closing';
 export type ChecklistItemStatus = 'pending' | 'completed' | 'not_applicable' | 'problem';
@@ -94,6 +94,39 @@ async function currentScope() {
   };
 }
 
+async function getTemplate(scope: NonNullable<Awaited<ReturnType<typeof currentScope>>>, type: ChecklistType) {
+  let items = await db.select().from(shiftChecklistTemplates).where(and(eq(shiftChecklistTemplates.type, type), eq(shiftChecklistTemplates.venueId, scope.venueId), eq(shiftChecklistTemplates.isDemo, scope.isDemo))).orderBy(asc(shiftChecklistTemplates.sortOrder));
+  if (items.length === 0) {
+    const defaults = templateFor(type);
+    await db.insert(shiftChecklistTemplates).values(defaults.map((item, index) => ({ type, itemKey: item.key, title: item.title, section: item.section, sortOrder: index + 1, dueMinutesBeforeClose: item.dueMinutesBeforeClose ?? null, venueId: scope.venueId, isDemo: scope.isDemo })));
+    items = await db.select().from(shiftChecklistTemplates).where(and(eq(shiftChecklistTemplates.type, type), eq(shiftChecklistTemplates.venueId, scope.venueId), eq(shiftChecklistTemplates.isDemo, scope.isDemo))).orderBy(asc(shiftChecklistTemplates.sortOrder));
+  }
+  return items;
+}
+
+function canManage(role: string | undefined) { return role === 'owner' || role === 'manager' || role === 'technik'; }
+
+export type ChecklistTemplateInput = { id?: number; title: string; section: string; dueMinutesBeforeClose?: number | null };
+
+export async function getChecklistTemplateAction(type: ChecklistType) {
+  const scope = await currentScope();
+  if (!scope) return { success: false, error: 'Brak autoryzacji.' };
+  try { return { success: true, data: await getTemplate(scope, type) }; }
+  catch (error) { console.error('[Checklist] Template load:', error); return { success: false, error: 'Nie udało się wczytać szablonu.' }; }
+}
+
+export async function saveChecklistTemplateAction(type: ChecklistType, items: ChecklistTemplateInput[]) {
+  const session = await auth(); const scope = await currentScope();
+  if (!session?.user || !scope) return { success: false, error: 'Brak autoryzacji.' };
+  if (!canManage((session.user as { role?: string }).role)) return { success: false, error: 'Tylko manager, technik lub właściciel może edytować checklistę.' };
+  if (!items.length || items.some(item => !item.title.trim() || !item.section.trim())) return { success: false, error: 'Każdy punkt musi mieć treść i sekcję.' };
+  try {
+    await db.delete(shiftChecklistTemplates).where(and(eq(shiftChecklistTemplates.type, type), eq(shiftChecklistTemplates.venueId, scope.venueId), eq(shiftChecklistTemplates.isDemo, scope.isDemo)));
+    await db.insert(shiftChecklistTemplates).values(items.map((item, index) => ({ type, itemKey: item.id ? `item-${item.id}` : `custom-${Date.now()}-${index}`, title: item.title.trim(), section: item.section.trim(), sortOrder: index + 1, dueMinutesBeforeClose: type === 'closing' && item.dueMinutesBeforeClose !== null && item.dueMinutesBeforeClose !== undefined ? Math.max(0, Math.floor(item.dueMinutesBeforeClose)) : null, venueId: scope.venueId, isDemo: scope.isDemo })));
+    return { success: true };
+  } catch (error) { console.error('[Checklist] Template save:', error); return { success: false, error: 'Nie udało się zapisać szablonu.' }; }
+}
+
 export async function getChecklistAction(date: string, type: ChecklistType) {
   const scope = await currentScope();
   if (!scope) return { success: false, error: 'Brak autoryzacji.' };
@@ -110,9 +143,9 @@ export async function getChecklistAction(date: string, type: ChecklistType) {
         date, type, venueId: scope.venueId, isDemo: scope.isDemo,
       });
       const checklistId = Number(created[0].insertId);
-      const template = templateFor(type);
+      const template = await getTemplate(scope, type);
       await db.insert(shiftChecklistItems).values(template.map((item, index) => ({
-        checklistId, itemKey: item.key, title: item.title, section: item.section,
+        checklistId, itemKey: item.itemKey, title: item.title, section: item.section,
         sortOrder: index + 1, dueMinutesBeforeClose: item.dueMinutesBeforeClose ?? null,
       })));
       [checklist] = await db.select().from(shiftChecklists).where(eq(shiftChecklists.id, checklistId)).limit(1);

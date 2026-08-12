@@ -141,6 +141,20 @@ export const shiftChecklistItems = mysqlTable('shift_checklist_items', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const shiftChecklistTemplates = mysqlTable('shift_checklist_templates', {
+  id: int('id').primaryKey().autoincrement(),
+  type: mysqlEnum('type', ['opening', 'closing']).notNull(),
+  itemKey: varchar('item_key', { length: 100 }).notNull(),
+  title: varchar('title', { length: 500 }).notNull(),
+  section: varchar('section', { length: 100 }).notNull(),
+  sortOrder: int('sort_order').notNull(),
+  dueMinutesBeforeClose: int('due_minutes_before_close'),
+  venueId: int('venue_id').notNull(),
+  isDemo: boolean('is_demo').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
+});
+
 export const shiftCashReconciliations = mysqlTable('shift_cash_reconciliations', {
   id: int('id').primaryKey().autoincrement(),
   date: date('date', { mode: 'string' }).notNull(),
