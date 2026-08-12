@@ -1,13 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { signIn } from 'next-auth/react';
-import { ensureDemoDataAction } from '@/app/actions/demoActions';
-import { User, Shield, Wrench, Users, ArrowRight, Loader2 } from 'lucide-react';
+import { ensureDemoDataAction, checkDemoModeEnabledAction } from '@/app/actions/demoActions';
+import { User, Shield, Wrench, Users, ArrowRight, Loader2, Lock } from 'lucide-react';
+import Link from 'next/link';
 
 export default function DemoPage() {
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    checkDemoModeEnabledAction().then(enabled => {
+      setDemoEnabled(enabled);
+    });
+  }, []);
 
   const handleSelectRole = async (roleName: string, email: string) => {
     setLoadingRole(roleName);
@@ -79,6 +87,26 @@ export default function DemoPage() {
       features: ['Logowanie RCP', 'Podgląd grafiku', 'Wykonywanie zadań', 'Spot-checki magazynu']
     }
   ];
+
+  if (demoEnabled === false) {
+    return (
+      <div className="min-h-screen bg-[#070707] text-white flex flex-col justify-center items-center p-6 text-center">
+        <div className="max-w-md w-full glass-card p-8 rounded-3xl border border-brand-red/30 space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-brand-red/20 border border-brand-red/40 flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6 text-brand-red" />
+          </div>
+          <h2 className="text-xl font-black text-white">Tryb Demo Wyłączony</h2>
+          <p className="text-xs text-[#a0a0a0]">
+            Dostęp do publicznego trybu demonstracyjnego został wyłączony przez administratora systemu.
+          </p>
+          <Link href="/login" className="inline-flex items-center gap-2 px-6 py-3 bg-brand-gold text-brand-dark font-extrabold text-xs rounded-xl hover:opacity-90 transition">
+            <span>Przejdź do ekranu logowania</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#070707] text-white flex flex-col justify-between relative overflow-hidden font-sans">

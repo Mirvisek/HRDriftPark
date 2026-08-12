@@ -142,6 +142,7 @@ export default function SettingsPage() {
     security_force_password_days: '0',
     warehouse_suppliers: '',
     warehouse_locations: '',
+    demo_mode_enabled: 'true',
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
@@ -1876,6 +1877,25 @@ export default function SettingsPage() {
                     <option value="180">Co 180 dni</option>
                     <option value="365">Co rok</option>
                   </select>
+                </div>
+                <div className="sm:col-span-2 pt-2 border-t border-white/5">
+                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
+                    Publiczny Tryb Demonstracyjny (/demo)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={siteSettings.demo_mode_enabled !== 'false'}
+                        onChange={e => setSiteSettings(prev => ({ ...prev, demo_mode_enabled: e.target.checked ? 'true' : 'false' }))}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-[#333] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-gold"></div>
+                    </label>
+                    <span className="text-xs text-[#a0a0a0]">
+                      {siteSettings.demo_mode_enabled !== 'false' ? 'Dostępny pod adresem /demo' : 'Wyłączony — nikt nie może się zalogować przez /demo'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

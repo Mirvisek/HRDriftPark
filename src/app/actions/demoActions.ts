@@ -23,8 +23,22 @@ function getDateOffset(days: number): string {
   return d.toISOString().split('T')[0];
 }
 
+export async function checkDemoModeEnabledAction() {
+  try {
+    const { getSetting } = await import('@/lib/mail');
+    const enabled = await getSetting('demo_mode_enabled', 'true');
+    return enabled !== 'false';
+  } catch (e) {
+    return true;
+  }
+}
+
 export async function ensureDemoDataAction() {
   try {
+    const isEnabled = await checkDemoModeEnabledAction();
+    if (!isEnabled) {
+      return { success: false, error: "Tryb demonstracyjny został wyłączony przez administratora." };
+    }
     // 1. Sprawdź i dodaj domyślne lokale (venues są wspólne, nie mają isDemo)
     let krakowId = 1;
     let katowiceId = 2;
