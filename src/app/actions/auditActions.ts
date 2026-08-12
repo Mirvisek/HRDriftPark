@@ -8,11 +8,11 @@ import { hasPermission } from "@/lib/permissions";
 
 export interface AuditLogEntry {
   id: number;
-  executorId: number | null;
+  userId: number | null;
   executorName?: string;
   tableName: string;
   recordId: number;
-  action: 'INSERT' | 'UPDATE' | 'DELETE';
+  action: string;
   oldData: string | null;
   newData: string | null;
   createdAt: Date | null;
@@ -28,17 +28,17 @@ export async function getAuditLogsAction(limit: number = 100) {
     const logs = await db
       .select({
         id: auditLogs.id,
-        executorId: auditLogs.executorId,
+        userId: auditLogs.userId,
         executorName: users.displayName,
-        tableName: auditLogs.tableName,
-        recordId: auditLogs.recordId,
+        tableName: auditLogs.entityType,
+        recordId: auditLogs.entityId,
         action: auditLogs.action,
-        oldData: auditLogs.oldData,
-        newData: auditLogs.newData,
+        oldData: auditLogs.oldValue,
+        newData: auditLogs.newValue,
         createdAt: auditLogs.createdAt,
       })
       .from(auditLogs)
-      .leftJoin(users, eq(auditLogs.executorId, users.id))
+      .leftJoin(users, eq(auditLogs.userId, users.id))
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
 
