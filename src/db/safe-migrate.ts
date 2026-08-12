@@ -309,6 +309,28 @@ async function main() {
     }
   }
 
+  // Dodanie kolumny is_demo do tabel magazynowych (izolacja trybu demo)
+  const warehouseTablesForDemo = [
+    'warehouse_categories',
+    'warehouse_products',
+    'warehouse_batches',
+    'warehouse_history',
+    'warehouse_inventories'
+  ];
+  for (const tbl of warehouseTablesForDemo) {
+    try {
+      console.log(`Dodawanie kolumny 'is_demo' do tabeli '${tbl}'...`);
+      await db.execute(sql.raw(`ALTER TABLE \`${tbl}\` ADD COLUMN \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0;`));
+      console.log(`[✓] Pomyślnie dodano kolumnę 'is_demo' do '${tbl}'.`);
+    } catch (e: any) {
+      if (isDuplicateColumnError(e)) {
+        console.log(`[i] Kolumna 'is_demo' w '${tbl}' już istnieje.`);
+      } else {
+        console.error(`Błąd podczas dodawania kolumny 'is_demo' do '${tbl}':`, e.message);
+      }
+    }
+  }
+
   // 5. Inicjalizacja stawek początkowych oraz uprawnień dla istniejących użytkowników
   try {
     console.log("Generowanie stawek początkowych w salary_history oraz domyślnych uprawnień dla obecnych użytkowników...");

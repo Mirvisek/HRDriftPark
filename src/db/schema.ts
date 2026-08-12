@@ -138,6 +138,7 @@ export const salaryHistory = mysqlTable('salary_history', {
 export const warehouseCategories = mysqlTable('warehouse_categories', {
   id: int('id').primaryKey().autoincrement(),
   name: varchar('name', { length: 255 }).notNull(),
+  isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -155,6 +156,7 @@ export const warehouseProducts = mysqlTable('warehouse_products', {
   autoSpotCheck: boolean('auto_spot_check').notNull().default(false),
   status: mysqlEnum('status', ['active', 'inactive']).notNull().default('active'),
   remarks: text('remarks'),
+  isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -165,6 +167,7 @@ export const warehouseBatches = mysqlTable('warehouse_batches', {
   expiryDate: date('expiry_date', { mode: 'string' }),
   quantity: double('quantity').notNull().default(0),
   venueId: int('venue_id'),
+  isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -179,6 +182,7 @@ export const warehouseHistory = mysqlTable('warehouse_history', {
   remarks: text('remarks'),
   attachmentUrl: text('attachment_url'),
   venueId: int('venue_id'),
+  isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -189,6 +193,7 @@ export const warehouseInventories = mysqlTable('warehouse_inventories', {
   type: mysqlEnum('type', ['full', 'spot']).notNull().default('full'),
   status: mysqlEnum('status', ['draft', 'submitted']).notNull().default('draft'),
   venueId: int('venue_id'),
+  isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

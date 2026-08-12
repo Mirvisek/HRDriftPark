@@ -51,9 +51,12 @@ async function saveUploadedFile(file: File): Promise<string> {
 // -------------------------------------------------------------
 
 export async function getCategoriesAction() {
-  await checkAuth('inventory:view');
+  const session = await checkAuth('inventory:view');
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
-    const data = await db.select().from(warehouseCategories).orderBy(asc(warehouseCategories.name));
+    const data = await db.select().from(warehouseCategories)
+      .where(eq(warehouseCategories.isDemo, userIsDemo))
+      .orderBy(asc(warehouseCategories.name));
     return { success: true, data };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -61,13 +64,14 @@ export async function getCategoriesAction() {
 }
 
 export async function saveCategoryAction(id: number | null, name: string) {
-  await checkAuth('inventory:manage');
+  const session = await checkAuth('inventory:manage');
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
     if (!name.trim()) return { success: false, error: "Nazwa kategorii nie może być pusta." };
     if (id) {
-      await db.update(warehouseCategories).set({ name: name.trim() }).where(eq(warehouseCategories.id, id));
+      await db.update(warehouseCategories).set({ name: name.trim() }).where(and(eq(warehouseCategories.id, id), eq(warehouseCategories.isDemo, userIsDemo)));
     } else {
-      await db.insert(warehouseCategories).values({ name: name.trim() });
+      await db.insert(warehouseCategories).values({ name: name.trim(), isDemo: userIsDemo });
     }
     return { success: true };
   } catch (e: any) {
@@ -82,6 +86,7 @@ export async function saveCategoryAction(id: number | null, name: string) {
 export async function getProductsAction() {
   const session = await checkAuth('inventory:view');
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
     const products = await db.select({
       id: warehouseProducts.id,
@@ -99,10 +104,11 @@ export async function getProductsAction() {
       status: warehouseProducts.status,
       remarks: warehouseProducts.remarks,
       createdAt: warehouseProducts.createdAt,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId} AND is_demo = ${userIsDemo ? 1 : 0}), 0)`
     })
     .from(warehouseProducts)
     .leftJoin(warehouseCategories, eq(warehouseProducts.categoryId, warehouseCategories.id))
+    .where(eq(warehouseProducts.isDemo, userIsDemo))
     .orderBy(asc(warehouseProducts.name));
     
     return { success: true, data: products };
@@ -114,6 +120,7 @@ export async function getProductsAction() {
 export async function addProductAction(productData: any) {
   const session = await checkAuth('inventory:manage');
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
     if (!productData.name?.trim()) return { success: false, error: "Nazwa produktu jest wymagana." };
     if (!productData.categoryId) return { success: false, error: "Kategoria jest wymagana." };
@@ -130,7 +137,8 @@ export async function addProductAction(productData: any) {
       hasExpiry: !!productData.hasExpiry,
       autoSpotCheck: !!productData.autoSpotCheck,
       status: productData.status || 'active',
-      remarks: productData.remarks?.trim() || null
+      remarks: productData.remarks?.trim() || null,
+      isDemo: userIsDemo
     });
     
     const productId = (insertResult as any).insertId || 0;
@@ -142,7 +150,8 @@ export async function addProductAction(productData: any) {
         batchNumber: 'DEFAULT',
         expiryDate: null,
         quantity: 0,
-        venueId: userVenueId
+        venueId: userVenueId,
+        isDemo: userIsDemo
       });
     }
     
@@ -230,6 +239,7 @@ export async function deliverBulkProductsAction(formData: FormData) {
   const session = await checkAuth('inventory:deliver');
   const userId = Number((session.user as any).id);
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   
   try {
     const supplier = formData.get('supplier') as string || 'Dostawca Zewnętrzny';
@@ -283,7 +293,8 @@ export async function deliverBulkProductsAction(formData: FormData) {
             batchNumber: bNum,
             expiryDate: expDate,
             quantity: qty,
-            venueId: userVenueId
+            venueId: userVenueId,
+            isDemo: userIsDemo
           });
           batchId = (insertBatch as any).insertId || null;
         }
@@ -308,7 +319,8 @@ export async function deliverBulkProductsAction(formData: FormData) {
             batchNumber: 'DEFAULT',
             expiryDate: null,
             quantity: qty,
-            venueId: userVenueId
+            venueId: userVenueId,
+            isDemo: userIsDemo
           });
           batchId = (insertBatch as any).insertId || null;
         }
@@ -324,7 +336,8 @@ export async function deliverBulkProductsAction(formData: FormData) {
         source: supplier.trim(),
         remarks: remarks.trim() || (documentNumber ? `Faktura/Dokument: ${documentNumber}` : null),
         attachmentUrl,
-        venueId: userVenueId
+        venueId: userVenueId,
+        isDemo: userIsDemo
       });
     }
     
@@ -344,6 +357,7 @@ export async function issueProductAction(data: {
   const session = await checkAuth('inventory:issue');
   const userId = Number((session.user as any).id);
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   
   try {
     const qty = Number(data.quantity);
@@ -357,7 +371,8 @@ export async function issueProductAction(data: {
       .from(warehouseBatches)
       .where(and(
         eq(warehouseBatches.productId, data.productId),
-        eq(warehouseBatches.venueId, userVenueId)
+        eq(warehouseBatches.venueId, userVenueId),
+        eq(warehouseBatches.isDemo, userIsDemo)
       ))
       .orderBy(asc(warehouseBatches.expiryDate), asc(warehouseBatches.id)); // FEFO
        
@@ -386,7 +401,8 @@ export async function issueProductAction(data: {
         quantity: -issueFromThisBatch,
         source: data.venue.trim(),
         remarks: data.remarks?.trim() || null,
-        venueId: userVenueId
+        venueId: userVenueId,
+        isDemo: userIsDemo
       });
       
       remainingToIssue -= issueFromThisBatch;
@@ -406,6 +422,7 @@ export async function startInventoryAction(categoryId: number | null) {
   const session = await checkAuth('inventory:inventory');
   const userId = Number((session.user as any).id);
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   
   try {
     const activeDraft = await db.select()
@@ -425,7 +442,8 @@ export async function startInventoryAction(categoryId: number | null) {
       categoryId,
       type: 'full',
       status: 'draft',
-      venueId: userVenueId
+      venueId: userVenueId,
+      isDemo: userIsDemo
     });
     
     const inventoryId = (insertInv as any).insertId || 0;
@@ -437,10 +455,10 @@ export async function startInventoryAction(categoryId: number | null) {
     
     const products = await db.select({
       id: warehouseProducts.id,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId} AND is_demo = ${userIsDemo ? 1 : 0}), 0)`
     })
     .from(warehouseProducts)
-    .where(and(...conditions));
+    .where(and(...conditions, eq(warehouseProducts.isDemo, userIsDemo)));
     
     for (const p of products) {
       await db.insert(warehouseInventoryItems).values({
@@ -743,6 +761,7 @@ export async function cancelInventoryAction(inventoryId: number) {
 export async function getWarehouseDashboardAction() {
   const session = await checkAuth('inventory:view');
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
     const products = await db.select({
       id: warehouseProducts.id,
@@ -750,10 +769,10 @@ export async function getWarehouseDashboardAction() {
       minStock: warehouseProducts.minStock,
       maxStock: warehouseProducts.maxStock,
       unit: warehouseProducts.unit,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${userVenueId} AND is_demo = ${userIsDemo ? 1 : 0}), 0)`
     })
     .from(warehouseProducts)
-    .where(eq(warehouseProducts.status, 'active'));
+    .where(and(eq(warehouseProducts.status, 'active'), eq(warehouseProducts.isDemo, userIsDemo)));
     
     const lowStockProducts = products.filter(p => p.currentStock <= p.minStock);
     
@@ -769,7 +788,8 @@ export async function getWarehouseDashboardAction() {
     .where(and(
       sql`expiry_date IS NOT NULL`,
       sql`quantity > 0`,
-      eq(warehouseBatches.venueId, userVenueId)
+      eq(warehouseBatches.venueId, userVenueId),
+      eq(warehouseBatches.isDemo, userIsDemo)
     ));
     
     const today = new Date();
@@ -814,7 +834,8 @@ export async function getWarehouseDashboardAction() {
     .leftJoin(users, eq(warehouseHistory.userId, users.id))
     .where(and(
       eq(warehouseHistory.type, 'delivery'),
-      eq(warehouseHistory.venueId, userVenueId)
+      eq(warehouseHistory.venueId, userVenueId),
+      eq(warehouseHistory.isDemo, userIsDemo)
     ))
     .orderBy(desc(warehouseHistory.createdAt))
     .limit(5);
@@ -832,7 +853,8 @@ export async function getWarehouseDashboardAction() {
     .leftJoin(users, eq(warehouseHistory.userId, users.id))
     .where(and(
       eq(warehouseHistory.type, 'issue'),
-      eq(warehouseHistory.venueId, userVenueId)
+      eq(warehouseHistory.venueId, userVenueId),
+      eq(warehouseHistory.isDemo, userIsDemo)
     ))
     .orderBy(desc(warehouseHistory.createdAt))
     .limit(5);
@@ -846,7 +868,8 @@ export async function getWarehouseDashboardAction() {
     .leftJoin(users, eq(warehouseInventories.userId, users.id))
     .where(and(
       eq(warehouseInventories.status, 'submitted'),
-      eq(warehouseInventories.venueId, userVenueId)
+      eq(warehouseInventories.venueId, userVenueId),
+      eq(warehouseInventories.isDemo, userIsDemo)
     ))
     .orderBy(desc(warehouseInventories.createdAt))
     .limit(1);
@@ -861,7 +884,8 @@ export async function getWarehouseDashboardAction() {
       eq(warehouseInventories.type, 'spot'),
       eq(warehouseInventories.status, 'draft'),
       eq(warehouseInventories.venueId, userVenueId),
-      sql`DATE(created_at) = ${todayStr}`
+      sql`DATE(created_at) = ${todayStr}`,
+      eq(warehouseInventories.isDemo, userIsDemo)
     ))
     .limit(1);
 
@@ -887,8 +911,12 @@ export async function getWarehouseDashboardAction() {
 export async function getWarehouseHistoryAction(filters?: { productId?: number; type?: string }) {
   const session = await checkAuth('inventory:view');
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
-    const conditions = [eq(warehouseHistory.venueId, userVenueId)];
+    const conditions = [
+      eq(warehouseHistory.venueId, userVenueId),
+      eq(warehouseHistory.isDemo, userIsDemo)
+    ];
     if (filters?.productId) {
       conditions.push(eq(warehouseHistory.productId, filters.productId));
     }
@@ -926,13 +954,14 @@ export async function getWarehouseHistoryAction(filters?: { productId?: number; 
 // SYSTEMOWE TRIGGEROWANIE WYBIÓRCZEJ INWENTARYZACJI (SPOT CHECK) PER LOKAL
 // -------------------------------------------------------------
 
-export async function triggerDailySpotCheckAction(dateStr: string, venueId: number) {
+export async function triggerDailySpotCheckAction(dateStr: string, venueId: number, isDemo: boolean = false) {
   try {
     const existing = await db.select()
       .from(warehouseInventories)
       .where(and(
         eq(warehouseInventories.type, 'spot'),
         eq(warehouseInventories.venueId, venueId),
+        eq(warehouseInventories.isDemo, isDemo),
         sql`DATE(created_at) = ${dateStr}`
       ))
       .limit(1);
@@ -944,12 +973,13 @@ export async function triggerDailySpotCheckAction(dateStr: string, venueId: numb
     const spotCheckProducts = await db.select({
       id: warehouseProducts.id,
       name: warehouseProducts.name,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${venueId}), 0)`
+      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${venueId} AND is_demo = ${isDemo ? 1 : 0}), 0)`
     })
     .from(warehouseProducts)
     .where(and(
       eq(warehouseProducts.status, 'active'),
-      eq(warehouseProducts.autoSpotCheck, true)
+      eq(warehouseProducts.autoSpotCheck, true),
+      eq(warehouseProducts.isDemo, isDemo)
     ));
     
     if (spotCheckProducts.length === 0) {
@@ -959,7 +989,11 @@ export async function triggerDailySpotCheckAction(dateStr: string, venueId: numb
     const shuffled = [...spotCheckProducts].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, 3);
     
-    const defaultAdmin = await db.select().from(users).where(and(eq(users.role, 'owner'), eq(users.venueId, venueId))).limit(1);
+    const defaultAdmin = await db.select().from(users).where(and(
+      eq(users.role, 'owner'),
+      eq(users.venueId, venueId),
+      eq(users.isDemo, isDemo)
+    )).limit(1);
     const systemUserId = defaultAdmin.length > 0 ? defaultAdmin[0].id : 1;
     
     const [insertInv] = await db.insert(warehouseInventories).values({
@@ -967,7 +1001,8 @@ export async function triggerDailySpotCheckAction(dateStr: string, venueId: numb
       type: 'spot',
       status: 'draft',
       createdAt: new Date(dateStr + "T08:00:00"),
-      venueId
+      venueId,
+      isDemo
     });
     const inventoryId = (insertInv as any).insertId || 0;
     
@@ -988,7 +1023,7 @@ export async function triggerDailySpotCheckAction(dateStr: string, venueId: numb
       type: 'recurring',
       priority: 'high',
       isCompleted: false,
-      isDemo: false,
+      isDemo,
       venueId
     });
     
@@ -1044,12 +1079,13 @@ export async function importBulkProductsAction(productsList: Array<{
   const session = await checkAuth('inventory:manage');
   const userId = Number((session.user as any).id);
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   try {
     let successCount = 0;
     
-    // Pobierz istniejące kategorie, by nie odpytywać bazy w pętli bez potrzeby
-    const allCategories = await db.select().from(warehouseCategories);
+    // Pobierz istniejące kategorie (tego samego trybu), by nie odpytywać bazy w pętli bez potrzeby
+    const allCategories = await db.select().from(warehouseCategories).where(eq(warehouseCategories.isDemo, userIsDemo));
     const categoryMap = new Map<string, number>();
     allCategories.forEach(c => categoryMap.set(c.name.toLowerCase().trim(), c.id));
 
@@ -1064,7 +1100,8 @@ export async function importBulkProductsAction(productsList: Array<{
       } else {
         // Dodaj nową kategorię
         const [insertCat] = await db.insert(warehouseCategories).values({
-          name: catNameNorm
+          name: catNameNorm,
+          isDemo: userIsDemo
         });
         categoryId = (insertCat as any).insertId || 0;
         categoryMap.set(catKey, categoryId);
@@ -1083,7 +1120,8 @@ export async function importBulkProductsAction(productsList: Array<{
         hasExpiry: !!item.hasExpiry,
         autoSpotCheck: !!item.autoSpotCheck,
         remarks: item.remarks?.trim() || null,
-        status: 'active'
+        status: 'active',
+        isDemo: userIsDemo
       });
       const productId = (insertProd as any).insertId || 0;
 
@@ -1095,7 +1133,8 @@ export async function importBulkProductsAction(productsList: Array<{
           batchNumber: item.hasExpiry ? 'PARTIA-START' : 'DEFAULT',
           expiryDate: null,
           quantity: initialQty,
-          venueId: userVenueId
+          venueId: userVenueId,
+          isDemo: userIsDemo
         });
         
         await db.insert(warehouseHistory).values({
@@ -1106,7 +1145,8 @@ export async function importBulkProductsAction(productsList: Array<{
           quantity: initialQty,
           source: 'Import z Excela',
           remarks: 'Inicjalizacja stanu z importu Excela',
-          venueId: userVenueId
+          venueId: userVenueId,
+          isDemo: userIsDemo
         });
       }
       
@@ -1123,9 +1163,13 @@ export async function importBulkProductsAction(productsList: Array<{
 export async function clearWarehouseHistoryAction() {
   const session = await checkAuth('inventory:manage');
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   try {
-    await db.delete(warehouseHistory).where(eq(warehouseHistory.venueId, userVenueId));
+    await db.delete(warehouseHistory).where(and(
+      eq(warehouseHistory.venueId, userVenueId),
+      eq(warehouseHistory.isDemo, userIsDemo)
+    ));
     return { success: true };
   } catch (e: any) {
     console.error("Błąd podczas czyszczenia historii operacji:", e);

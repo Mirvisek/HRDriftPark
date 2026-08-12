@@ -17,6 +17,7 @@ export interface UserEntry {
 export async function getEmployees() {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
+  const userIsDemo = (session.user as any).isDemo === true;
   
   try {
     const results = await db
@@ -29,7 +30,8 @@ export async function getEmployees() {
         isDemo: users.isDemo,
         hourlyRate: users.hourlyRate,
       })
-      .from(users);
+      .from(users)
+      .where(eq(users.isDemo, userIsDemo));
       
     return { success: true, data: results };
   } catch (e) {
@@ -41,13 +43,14 @@ export async function getEmployees() {
 export async function sendSystemNotification(userId: number, message: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  const userIsDemo = (session.user as any).isDemo === true;
   
   try {
     await db.insert(notifications).values({
       userId,
       message,
       isRead: false,
-      isDemo: false
+      isDemo: userIsDemo
     });
     return { success: true };
   } catch (e) {

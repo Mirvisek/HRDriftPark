@@ -13,7 +13,7 @@ import {
   timesheets, 
   salaryHistory 
 } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 // Helper to get formatted dates
@@ -25,17 +25,15 @@ function getDateOffset(days: number): string {
 
 export async function ensureDemoDataAction() {
   try {
-    // 1. Sprawdź i dodaj domyślne lokale
+    // 1. Sprawdź i dodaj domyślne lokale (venues są wspólne, nie mają isDemo)
     let krakowId = 1;
     let katowiceId = 2;
     
     const existingVenues = await db.select().from(venues);
     if (existingVenues.length === 0) {
       console.log("[Demo Seeding] Wstawianie lokali...");
-      const [insertKrakow] = await db.insert(venues).values({ id: 1, name: "Kraków Rynek" });
-      const [insertKatowice] = await db.insert(venues).values({ id: 2, name: "Katowice Centrum" });
-      krakowId = (insertKrakow as any).insertId || 1;
-      katowiceId = (insertKatowice as any).insertId || 2;
+      await db.insert(venues).values({ id: 1, name: "Kraków Rynek" });
+      await db.insert(venues).values({ id: 2, name: "Katowice Centrum" });
     } else {
       krakowId = existingVenues.find(v => v.name.includes("Kraków"))?.id || existingVenues[0].id;
       katowiceId = existingVenues.find(v => v.name.includes("Katowice"))?.id || existingVenues[0].id;
@@ -113,46 +111,49 @@ export async function ensureDemoDataAction() {
         });
         userId = (insertRes as any).insertId || 0;
 
-        // Wpis w salary_history
-        await db.insert(salaryHistory).values({
-          userId,
-          hourlyRate: acc.hourlyRate,
-          validFrom: "2026-01-01",
-          validTo: null
-        });
+        const existingSalary = await db.select().from(salaryHistory).where(eq(salaryHistory.userId, userId)).limit(1);
+        if (existingSalary.length === 0) {
+          await db.insert(salaryHistory).values({
+            userId,
+            hourlyRate: acc.hourlyRate,
+            validFrom: "2026-01-01",
+            validTo: null
+          });
+        }
       } else {
         userId = existing[0].id;
-        // Zaktualizuj hasło i uprawnienia, by mieć pewność poprawnego logowania demo
+        // Zaktualizuj hasło i uprawnienia
         await db.update(users).set({
           password: hashedPassword,
           permissions: acc.permissions,
           role: acc.role,
-          venueId: krakowId
+          venueId: krakowId,
+          isDemo: true
         }).where(eq(users.id, userId));
       }
       
       seededUsers[acc.role] = userId;
     }
 
-    // 4. Kategorie magazynowe
-    let catNapojeId = 1;
-    let catSerwisId = 2;
+    // 4. Kategorie magazynowe (filtruj po isDemo: true)
+    let catNapojeId = 0;
+    let catSerwisId = 0;
     
-    const existingCats = await db.select().from(warehouseCategories);
+    const existingCats = await db.select().from(warehouseCategories).where(eq(warehouseCategories.isDemo, true));
     if (existingCats.length === 0) {
       console.log("[Demo Seeding] Wstawianie kategorii magazynowych...");
-      const [insNapoje] = await db.insert(warehouseCategories).values({ name: "Napoje" });
-      const [insSerwis] = await db.insert(warehouseCategories).values({ name: "Części i Serwis" });
-      await db.insert(warehouseCategories).values({ name: "Przekąski" });
-      catNapojeId = (insNapoje as any).insertId || 1;
-      catSerwisId = (insSerwis as any).insertId || 2;
+      const [insNapoje] = await db.insert(warehouseCategories).values({ name: "Napoje", isDemo: true });
+      const [insSerwis] = await db.insert(warehouseCategories).values({ name: "Części i Serwis", isDemo: true });
+      await db.insert(warehouseCategories).values({ name: "Przekąski", isDemo: true });
+      catNapojeId = (insNapoje as any).insertId || 0;
+      catSerwisId = (insSerwis as any).insertId || 0;
     } else {
       catNapojeId = existingCats.find(c => c.name.includes("Napoje"))?.id || existingCats[0].id;
       catSerwisId = existingCats.find(c => c.name.includes("Części"))?.id || existingCats[0].id;
     }
 
-    // 5. Produkty magazynowe
-    const existingProds = await db.select().from(warehouseProducts);
+    // 5. Produkty magazynowe (filtruj po isDemo: true)
+    const existingProds = await db.select().from(warehouseProducts).where(eq(warehouseProducts.isDemo, true));
     if (existingProds.length === 0) {
       console.log("[Demo Seeding] Wstawianie produktów magazynowych...");
       const prodsToSeed = [
@@ -241,7 +242,8 @@ export async function ensureDemoDataAction() {
           hasExpiry: p.hasExpiry,
           autoSpotCheck: p.autoSpotCheck,
           status: p.status,
-          remarks: p.remarks
+          remarks: p.remarks,
+          isDemo: true
         });
         const productId = (insertP as any).insertId || 0;
 
@@ -252,7 +254,8 @@ export async function ensureDemoDataAction() {
             batchNumber: p.hasExpiry ? "PARTIA-START-KR" : "DEFAULT",
             expiryDate: p.hasExpiry ? getDateOffset(60) : null,
             quantity: p.minStock + 10,
-            venueId: krakowId
+            venueId: krakowId,
+            isDemo: true
           });
 
           await db.insert(warehouseHistory).values({
@@ -263,7 +266,8 @@ export async function ensureDemoDataAction() {
             quantity: p.minStock + 10,
             source: p.supplier,
             remarks: "Zasilenie początkowe demo (Centrala Kraków)",
-            venueId: krakowId
+            venueId: krakowId,
+            isDemo: true
           });
 
           // Zasilenie Katowice Centrum
@@ -272,7 +276,8 @@ export async function ensureDemoDataAction() {
             batchNumber: p.hasExpiry ? "PARTIA-START-KT" : "DEFAULT",
             expiryDate: p.hasExpiry ? getDateOffset(60) : null,
             quantity: p.minStock - 2 > 0 ? p.minStock - 2 : 5,
-            venueId: katowiceId
+            venueId: katowiceId,
+            isDemo: true
           });
 
           await db.insert(warehouseHistory).values({
@@ -283,14 +288,15 @@ export async function ensureDemoDataAction() {
             quantity: p.minStock - 2 > 0 ? p.minStock - 2 : 5,
             source: p.supplier,
             remarks: "Zasilenie początkowe demo (Katowice)",
-            venueId: katowiceId
+            venueId: katowiceId,
+            isDemo: true
           });
         }
       }
     }
 
-    // 6. Zadania zmiany (Shift Tasks)
-    const existingTasks = await db.select().from(shiftTasks);
+    // 6. Zadania zmiany (filtruj po isDemo: true)
+    const existingTasks = await db.select().from(shiftTasks).where(eq(shiftTasks.isDemo, true));
     if (existingTasks.length === 0) {
       console.log("[Demo Seeding] Wstawianie zadań zmiany...");
       const tasksToSeed = [
@@ -300,7 +306,8 @@ export async function ensureDemoDataAction() {
           type: "recurring" as const,
           priority: "high" as const,
           isCompleted: false,
-          venueId: krakowId
+          venueId: krakowId,
+          isDemo: true
         },
         {
           date: getDateOffset(0),
@@ -308,7 +315,8 @@ export async function ensureDemoDataAction() {
           type: "recurring" as const,
           priority: "medium" as const,
           isCompleted: false,
-          venueId: krakowId
+          venueId: krakowId,
+          isDemo: true
         },
         {
           date: getDateOffset(0),
@@ -319,7 +327,8 @@ export async function ensureDemoDataAction() {
           completedBy: seededUsers['technik'] || null,
           completedByName: "Technik Demo",
           completedAt: new Date(),
-          venueId: krakowId
+          venueId: krakowId,
+          isDemo: true
         },
         {
           date: getDateOffset(0),
@@ -327,7 +336,8 @@ export async function ensureDemoDataAction() {
           type: "additional" as const,
           priority: "low" as const,
           isCompleted: false,
-          venueId: krakowId
+          venueId: krakowId,
+          isDemo: true
         }
       ];
 
@@ -336,13 +346,13 @@ export async function ensureDemoDataAction() {
       }
     }
 
-    // 7. Grafik pracy (Work Schedule)
-    const existingSchedule = await db.select().from(workSchedule);
+    // 7. Grafik pracy (filtruj po isDemo: true)
+    const existingSchedule = await db.select().from(workSchedule).where(eq(workSchedule.isDemo, true));
     if (existingSchedule.length === 0) {
       console.log("[Demo Seeding] Wstawianie grafiku...");
       const schedulesToSeed = [
         {
-          date: getDateOffset(0), // dzisiaj
+          date: getDateOffset(0),
           leadUserId: seededUsers['employee'] || null,
           supportUserId: seededUsers['manager'] || null,
           openTime: "12:00",
@@ -353,7 +363,7 @@ export async function ensureDemoDataAction() {
           isDemo: true
         },
         {
-          date: getDateOffset(1), // jutro
+          date: getDateOffset(1),
           leadUserId: seededUsers['employee'] || null,
           supportUserId: seededUsers['technik'] || null,
           openTime: "10:00",
@@ -364,7 +374,7 @@ export async function ensureDemoDataAction() {
           isDemo: true
         },
         {
-          date: getDateOffset(2), // pojutrze
+          date: getDateOffset(2),
           leadUserId: seededUsers['manager'] || null,
           supportUserId: seededUsers['employee'] || null,
           openTime: "12:00",
@@ -381,8 +391,8 @@ export async function ensureDemoDataAction() {
       }
     }
 
-    // 8. Rejestr czasu pracy (Timesheets)
-    const existingTimesheets = await db.select().from(timesheets);
+    // 8. Rejestr czasu pracy (filtruj po isDemo: true)
+    const existingTimesheets = await db.select().from(timesheets).where(eq(timesheets.isDemo, true));
     if (existingTimesheets.length === 0) {
       console.log("[Demo Seeding] Wstawianie RCP...");
       const timesheetsToSeed = [

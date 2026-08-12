@@ -80,7 +80,8 @@ export async function saveSettingsAction(settingsData: Record<string, string>) {
  * Pobiera listę wszystkich użytkowników w systemie (do wyświetlenia w panelu ustawień)
  */
 export async function getUsersAction() {
-  await checkAuth('users:manage');
+  const session = await checkAuth('users:manage');
+  const userIsDemo = (session?.user as any)?.isDemo === true;
 
   try {
     const allUsers = await db
@@ -99,7 +100,8 @@ export async function getUsersAction() {
         permissions: users.permissions,
         venueId: users.venueId
       })
-      .from(users);
+      .from(users)
+      .where(eq(users.isDemo, userIsDemo));
 
     return { success: true, users: allUsers };
   } catch (e: any) {
@@ -172,11 +174,11 @@ export async function createUserAction(userData: {
       role,
       position: position.trim(),
       birthDate: birthDate.trim(),
-      mustChangePassword: true, // Wymuszamy zmianę przy pierwszym logowaniu
+      mustChangePassword: true,
       hourlyRate: hourlyRate || 0,
       permissions: userPermissions,
       venueId: userData.venueId || null,
-      isDemo: false
+      isDemo: (session?.user as any)?.isDemo === true
     });
 
     // Pobierz utworzonego użytkownika, by uzyskać jego ID i zapisać stawkę początkową

@@ -13,6 +13,7 @@ export async function getTasksForDateAction(dateStr: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   try {
     // 1. Sprawdź czy są już zadania w bazie dla tej daty i tego lokalu
@@ -21,7 +22,8 @@ export async function getTasksForDateAction(dateStr: string) {
       .from(shiftTasks)
       .where(and(
         eq(shiftTasks.date, dateStr),
-        eq(shiftTasks.venueId, userVenueId)
+        eq(shiftTasks.venueId, userVenueId),
+        eq(shiftTasks.isDemo, userIsDemo)
       ))
       .orderBy(shiftTasks.id);
 
@@ -38,7 +40,8 @@ export async function getTasksForDateAction(dateStr: string) {
       .from(taskTemplates)
       .where(and(
         eq(taskTemplates.dayOfWeek, dayOfWeek),
-        eq(taskTemplates.venueId, userVenueId)
+        eq(taskTemplates.venueId, userVenueId),
+        eq(taskTemplates.isDemo, userIsDemo)
       ))
       .orderBy(taskTemplates.id);
 
@@ -50,7 +53,7 @@ export async function getTasksForDateAction(dateStr: string) {
       priority: 'medium' as 'low' | 'medium' | 'high',
       isCompleted: false,
       venueId: userVenueId,
-      isDemo: false
+      isDemo: userIsDemo
     }));
 
     // Jeżeli to NIEDZIELA (dayOfWeek === 0), dodaj cotygodniową pełną inwentaryzację lokalu
@@ -62,7 +65,7 @@ export async function getTasksForDateAction(dateStr: string) {
         priority: 'high' as 'low' | 'medium' | 'high',
         isCompleted: false,
         venueId: userVenueId,
-        isDemo: false
+        isDemo: userIsDemo
       });
     }
 
@@ -73,7 +76,7 @@ export async function getTasksForDateAction(dateStr: string) {
     // Automatycznie losuj wybiórczą inwentaryzację (Spot Check) na ten dzień w tym lokalu
     try {
       const { triggerDailySpotCheckAction } = await import("./inventoryActions");
-      await triggerDailySpotCheckAction(dateStr, userVenueId);
+      await triggerDailySpotCheckAction(dateStr, userVenueId, userIsDemo);
     } catch (spotErr) {
       console.error("Błąd podczas automatycznego losowania Spot Check:", spotErr);
     }
@@ -84,7 +87,8 @@ export async function getTasksForDateAction(dateStr: string) {
       .from(shiftTasks)
       .where(and(
         eq(shiftTasks.date, dateStr),
-        eq(shiftTasks.venueId, userVenueId)
+        eq(shiftTasks.venueId, userVenueId),
+        eq(shiftTasks.isDemo, userIsDemo)
       ))
       .orderBy(shiftTasks.id);
 
@@ -106,6 +110,7 @@ export async function addAdditionalTaskAction(
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   if (!title.trim()) {
     return { success: false, error: "Tytuł zadania nie może być pusty." };
@@ -119,7 +124,7 @@ export async function addAdditionalTaskAction(
       priority,
       isCompleted: false,
       venueId: userVenueId,
-      isDemo: false
+      isDemo: userIsDemo
     });
 
     console.log(`[Tasks] Dodano zadanie dodatkowe na dzień ${dateStr} w lokalu ${userVenueId}: ${title}`);
@@ -203,12 +208,16 @@ export async function getTaskTemplatesAction() {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   try {
     const templates = await db
       .select()
       .from(taskTemplates)
-      .where(eq(taskTemplates.venueId, userVenueId))
+      .where(and(
+        eq(taskTemplates.venueId, userVenueId),
+        eq(taskTemplates.isDemo, userIsDemo)
+      ))
       .orderBy(asc(taskTemplates.dayOfWeek), asc(taskTemplates.title));
 
     return { success: true, data: templates };
@@ -225,6 +234,7 @@ export async function saveTaskTemplateAction(title: string, dayOfWeek: number) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   const role = (session.user as any).role;
   if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
@@ -240,7 +250,7 @@ export async function saveTaskTemplateAction(title: string, dayOfWeek: number) {
       title: title.trim(),
       dayOfWeek,
       venueId: userVenueId,
-      isDemo: false
+      isDemo: userIsDemo
     });
 
     console.log(`[Tasks] Zapisano szablon zadania w lokalu ${userVenueId} na dzień tygodnia ${dayOfWeek}: ${title}`);

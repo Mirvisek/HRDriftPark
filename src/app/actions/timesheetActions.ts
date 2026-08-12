@@ -39,13 +39,17 @@ export async function getTimesheets(userId: number, year: number, month: number)
   const pattern = `${year}-${monthStr}-%`;
 
   try {
+    const session = await auth();
+    const userIsDemo = (session?.user as any)?.isDemo === true;
+
     const results = await db
       .select()
       .from(timesheets)
       .where(
         and(
           eq(timesheets.userId, userId),
-          like(timesheets.date, pattern)
+          like(timesheets.date, pattern),
+          eq(timesheets.isDemo, userIsDemo)
         )
       );
 
@@ -72,7 +76,6 @@ export async function getTimesheets(userId: number, year: number, month: number)
       if (diffSec <= 0) return;
 
       const entryHours = diffSec / 3600;
-      // validFrom <= date oraz (validTo >= date lub validTo jest null)
       const matchedRate = userHistory.find(h => {
         return h.validFrom <= t.date && (!h.validTo || h.validTo >= t.date);
       });
@@ -90,6 +93,8 @@ export async function getTimesheets(userId: number, year: number, month: number)
     return { success: false, data: [], estimatedPayout: 0, error: "Błąd bazy danych podczas pobierania kart godzin." };
   }
 }
+
+
 
 export async function saveTimesheet(
   id: number | undefined,
@@ -164,7 +169,7 @@ export async function saveTimesheet(
         endTime,
         remarks,
         isLocked: false,
-        isDemo: false,
+        isDemo: (session.user as any).isDemo === true,
         version: 1
       });
 

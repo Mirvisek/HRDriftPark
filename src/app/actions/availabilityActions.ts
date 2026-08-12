@@ -50,13 +50,17 @@ export async function getAvailability(userId: number, year: number, month: numbe
   const yearMonthPattern = `${year}-${monthStr}-%`;
   
   try {
+    const session = await auth();
+    const userIsDemo = (session?.user as any)?.isDemo === true;
+
     const results = await db
       .select()
       .from(availability)
       .where(
         and(
           eq(availability.userId, userId),
-          like(availability.date, yearMonthPattern)
+          like(availability.date, yearMonthPattern),
+          eq(availability.isDemo, userIsDemo)
         )
       );
     return { success: true, data: results as AvailabilityEntry[] };
@@ -105,7 +109,7 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
         status,
         remarks,
         statusManager: 'pending',
-        isDemo: false
+        isDemo: (session.user as any).isDemo === true
       });
     }
     

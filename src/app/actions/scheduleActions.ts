@@ -29,6 +29,9 @@ export async function getWorkSchedule(year: number, month: number) {
   const pattern = `${year}-${monthStr}-%`;
 
   try {
+    const session = await auth();
+    const userIsDemo = (session?.user as any)?.isDemo === true;
+
     const results = await db
       .select({
         id: workSchedule.id,
@@ -44,10 +47,11 @@ export async function getWorkSchedule(year: number, month: number) {
         version: workSchedule.version,
       })
       .from(workSchedule)
-      .where(like(workSchedule.date, pattern));
+      .where(and(like(workSchedule.date, pattern), eq(workSchedule.isDemo, userIsDemo)));
 
-    // Dołączmy nazwy użytkowników
-    const allUsers = await db.select({ id: users.id, name: users.displayName }).from(users);
+    // Dołączmy nazwy użytkowników (tylko tego samego trybu)
+    const allUsers = await db.select({ id: users.id, name: users.displayName }).from(users)
+      .where(eq(users.isDemo, userIsDemo));
     const userMap = new Map(allUsers.map(u => [u.id, u.name]));
 
     const data: ScheduleEntry[] = results.map(r => ({
@@ -177,13 +181,14 @@ export async function saveWorkScheduleEntry(
   }
 
   const executorId = session.user ? Number((session.user as any).id) : null;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   try {
     // Sprawdź czy wpis już istnieje
     const existing = await db
       .select()
       .from(workSchedule)
-      .where(eq(workSchedule.date, dateStr))
+      .where(and(eq(workSchedule.date, dateStr), eq(workSchedule.isDemo, userIsDemo)))
       .limit(1);
 
     // Optymistyczne blokowanie i logowanie
@@ -229,7 +234,7 @@ export async function saveWorkScheduleEntry(
         openTime,
         closeTime,
         isClosed,
-        isDemo: false,
+        isDemo: userIsDemo,
         version: 1
       });
 
