@@ -48,7 +48,6 @@ import {
   uploadLogoAction,
   exportDatabaseBackupAction,
   sendTestEmailAction,
-  resetDemoDataAction,
   purgeReadNotificationsAction,
   getUserSalaryHistoryAction,
   addUserSalaryRateAction
@@ -142,7 +141,6 @@ export default function SettingsPage() {
     security_force_password_days: '0',
     warehouse_suppliers: '',
     warehouse_locations: '',
-    demo_mode_enabled: 'true',
     sms_api_key: '',
     sms_sender_name: 'DriftPark',
     cron_availability_lock_day: '15',
@@ -1912,25 +1910,6 @@ export default function SettingsPage() {
                     className="w-full px-3 py-2.5 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
                   />
                 </div>
-                <div className="sm:col-span-2 pt-2 border-t border-white/5">
-                  <label className="block text-[10px] font-bold text-[#a0a0a0] uppercase tracking-wider mb-1.5">
-                    Publiczny Tryb Demonstracyjny (/demo)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={siteSettings.demo_mode_enabled !== 'false'}
-                        onChange={e => setSiteSettings(prev => ({ ...prev, demo_mode_enabled: e.target.checked ? 'true' : 'false' }))}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-[#333] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-gold"></div>
-                    </label>
-                    <span className="text-xs text-[#a0a0a0]">
-                      {siteSettings.demo_mode_enabled !== 'false' ? 'Dostępny pod adresem /demo' : 'Wyłączony — nikt nie może się zalogować przez /demo'}
-                    </span>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -2179,31 +2158,6 @@ export default function SettingsPage() {
               className="px-5 py-2.5 bg-gradient-to-r from-brand-gold to-yellow-600 text-brand-dark font-extrabold text-xs rounded-xl hover:opacity-95 transition flex items-center gap-2 cursor-pointer shadow-lg shadow-brand-gold/10"
             >
               <span>Pobierz Kopię Zapasową (JSON)</span>
-            </button>
-          </div>
-
-          <div className="glass-card p-6 rounded-2xl border border-brand-red/20 bg-brand-red/5 space-y-4">
-            <h3 className="text-sm font-bold text-brand-red uppercase tracking-wider flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              <span>Reset Danych w Trybie Demo</span>
-            </h3>
-            <p className="text-xs text-[#a0a0a0]">
-              Zresetuj wszystkie dane testowe w trybie demo do początkowego stanu fabrycznego.
-            </p>
-            <button
-              onClick={async () => {
-                if (confirm("Czy na pewno chcesz przywrócić fabryczne dane testowe w trybie Demo?")) {
-                  const res = await resetDemoDataAction();
-                  if (res.success) {
-                    alert("Dane demo zostały pomyślnie zresetowane.");
-                  } else {
-                    alert(res.error || "Błąd resetu danych demo.");
-                  }
-                }
-              }}
-              className="px-5 py-2.5 bg-brand-red/20 border border-brand-red/40 text-brand-red font-extrabold text-xs rounded-xl hover:bg-brand-red/30 transition flex items-center gap-2 cursor-pointer"
-            >
-              <span>Przywróć Dane Testowe Demo</span>
             </button>
           </div>
         </div>

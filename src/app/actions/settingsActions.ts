@@ -686,20 +686,6 @@ export async function exportDatabaseBackupAction() {
 }
 
 /**
-  * Wywołuje ponowne zasilenie danych demo
-  */
-export async function resetDemoDataAction() {
-  await checkAuth('settings:edit');
-  try {
-    const { ensureDemoDataAction } = await import('./demoActions');
-    const result = await ensureDemoDataAction();
-    return result;
-  } catch (e: any) {
-    return { success: false, error: e.message };
-  }
-}
-
-/**
   * Wysyła testową wiadomość e-mail dla weryfikacji serwera SMTP
   */
 export async function sendTestEmailAction(targetEmail: string) {
