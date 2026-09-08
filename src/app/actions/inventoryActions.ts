@@ -1176,3 +1176,215 @@ export async function clearWarehouseHistoryAction() {
     return { success: false, error: e.message };
   }
 }
+
+// -------------------------------------------------------------
+// 3-ETAPOWE TRANSFERY MIĘDZYMAGAZYNOWE & REJESTR RUCHÓW (stock_movements)
+// -------------------------------------------------------------
+
+import { stockMovements, stockTransfers, alerts } from "@/db/schema";
+import { executeIdempotentAction, runTransaction } from "@/lib/transaction";
+
+export async function createStockTransferAction(
+  targetVenueId: number,
+  productId: number,
+  batchId: number | null,
+  quantity: number,
+  reasonCode?: string,
+  reasonText?: string,
+  idempotencyKey?: string
+) {
+  const session = await checkAuth('inventory:manage');
+  const sourceVenueId = (session.user as any).venueId || 1;
+  const userId = Number((session.user as any).id);
+  const isDemo = (session.user as any).isDemo === true;
+
+  if (sourceVenueId === targetVenueId) {
+    return { success: false, error: "Lokal źródłowy i docelowy nie mogą być takie same." };
+  }
+  if (quantity <= 0) {
+    return { success: false, error: "Ilość transferu musi być większa od zera." };
+  }
+
+  return (await executeIdempotentAction(userId, 'createStockTransfer', idempotencyKey, async (tx) => {
+    const client = tx || db;
+    const transferNumber = `TRF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    const [inserted] = await client.insert(stockTransfers).values({
+      transferNumber,
+      sourceVenueId,
+      targetVenueId,
+      productId,
+      batchId,
+      sentQuantity: quantity,
+      status: 'created',
+      sentBy: userId,
+      sentAt: new Date(),
+      reasonCode,
+      reasonText,
+      isDemo
+    });
+
+    const transferId = (inserted as any).insertId || 0;
+    return { success: true, transferId, transferNumber };
+  })).data;
+}
+
+export async function dispatchStockTransferAction(transferId: number) {
+  const session = await checkAuth('inventory:manage');
+  const userId = Number((session.user as any).id);
+
+  return await runTransaction(async (tx) => {
+    const existing = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, transferId)).limit(1);
+    if (existing.length === 0) return { success: false, error: "Transfer nie istnieje." };
+
+    const trf = existing[0];
+    if (trf.status !== 'created') {
+      return { success: false, error: `Nie można wysłać transferu w stanie: ${trf.status}` };
+    }
+
+    // 1. Zdejmij stan ze źródłowego lokalu
+    const sourceBatch = await tx.select().from(warehouseBatches).where(and(
+      eq(warehouseBatches.productId, trf.productId),
+      eq(warehouseBatches.venueId, trf.sourceVenueId)
+    )).limit(1);
+
+    if (sourceBatch.length > 0 && sourceBatch[0].quantity >= trf.sentQuantity) {
+      await tx.update(warehouseBatches)
+        .set({ quantity: sourceBatch[0].quantity - trf.sentQuantity })
+        .where(eq(warehouseBatches.id, sourceBatch[0].id));
+    } else {
+      return { success: false, error: "Niewystarczający stan magazynowy w lokalu źródłowym." };
+    }
+
+    // 2. Rejestracja w stock_movements
+    await tx.insert(stockMovements).values({
+      productId: trf.productId,
+      batchId: trf.batchId,
+      venueId: trf.sourceVenueId,
+      userId,
+      type: 'transfer_out',
+      quantity: -trf.sentQuantity,
+      sourceDocumentId: trf.transferNumber,
+      sourceDocumentType: 'stock_transfer',
+      reasonCode: trf.reasonCode,
+      reasonText: trf.reasonText,
+      isDemo: trf.isDemo
+    });
+
+    // 3. Zmiana stanu na DISPATCHED
+    await tx.update(stockTransfers)
+      .set({ status: 'dispatched', sentAt: new Date() })
+      .where(eq(stockTransfers.id, transferId));
+
+    return { success: true };
+  });
+}
+
+export async function receiveStockTransferAction(
+  transferId: number,
+  receivedQuantity: number,
+  reasonCode?: string,
+  reasonText?: string
+) {
+  const session = await checkAuth('inventory:manage');
+  const userId = Number((session.user as any).id);
+
+  return await runTransaction(async (tx) => {
+    const existing = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, transferId)).limit(1);
+    if (existing.length === 0) return { success: false, error: "Transfer nie istnieje." };
+
+    const trf = existing[0];
+    if (trf.status !== 'dispatched') {
+      return { success: false, error: `Nie można odebrać transferu w stanie: ${trf.status}` };
+    }
+
+    const discrepancy = trf.sentQuantity - receivedQuantity;
+    const finalStatus = discrepancy === 0 ? 'received' : 'partially_received';
+
+    // 1. Zwiększ stan w docelowym lokalu
+    const targetBatch = await tx.select().from(warehouseBatches).where(and(
+      eq(warehouseBatches.productId, trf.productId),
+      eq(warehouseBatches.venueId, trf.targetVenueId)
+    )).limit(1);
+
+    if (targetBatch.length > 0) {
+      await tx.update(warehouseBatches)
+        .set({ quantity: targetBatch[0].quantity + receivedQuantity })
+        .where(eq(warehouseBatches.id, targetBatch[0].id));
+    } else {
+      await tx.insert(warehouseBatches).values({
+        productId: trf.productId,
+        batchNumber: 'DEFAULT',
+        quantity: receivedQuantity,
+        venueId: trf.targetVenueId,
+        isDemo: trf.isDemo
+      });
+    }
+
+    // 2. Rejestracja w stock_movements
+    await tx.insert(stockMovements).values({
+      productId: trf.productId,
+      batchId: trf.batchId,
+      venueId: trf.targetVenueId,
+      userId,
+      type: 'transfer_in',
+      quantity: receivedQuantity,
+      sourceDocumentId: trf.transferNumber,
+      sourceDocumentType: 'stock_transfer',
+      reasonCode,
+      reasonText,
+      isDemo: trf.isDemo
+    });
+
+    // 3. Jeśli występuje rozbieżność, wygeneruj alert
+    if (discrepancy !== 0) {
+      await tx.insert(alerts).values({
+        ruleCode: 'STOCK_TRANSFER_DISCREPANCY',
+        severity: 'high',
+        confidence: 1.0,
+        source: 'inventory_engine',
+        title: '🔴 Rozbieżność w Transferze Towarowym',
+        message: `Wysłano ${trf.sentQuantity} szt., odebrano ${receivedQuantity} szt. (Różnica: ${discrepancy}). Kod: ${trf.transferNumber}`,
+        status: 'open',
+        entityType: 'stock_transfer',
+        entityId: transferId,
+        venueId: trf.targetVenueId,
+        employeeId: userId,
+        reasonCode,
+        reasonText,
+        isDemo: trf.isDemo
+      });
+    }
+
+    // 4. Aktualizuj transfer
+    await tx.update(stockTransfers).set({
+      receivedQuantity,
+      discrepancyQuantity: discrepancy,
+      status: finalStatus,
+      receivedBy: userId,
+      receivedAt: new Date()
+    }).where(eq(stockTransfers.id, transferId));
+
+    return { success: true, discrepancy };
+  });
+}
+
+export async function getStockTransfersAction() {
+  const session = await checkAuth('inventory:view');
+  const userVenueId = (session.user as any).venueId || 1;
+  const isDemo = (session.user as any).isDemo === true;
+
+  try {
+    const list = await db.select().from(stockTransfers)
+      .where(and(
+        eq(stockTransfers.isDemo, isDemo),
+        sql`(${stockTransfers.sourceVenueId} = ${userVenueId} OR ${stockTransfers.targetVenueId} = ${userVenueId})`
+      ))
+      .orderBy(desc(stockTransfers.createdAt));
+
+    return { success: true, data: list };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+

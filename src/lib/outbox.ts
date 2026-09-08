@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { outboxEvents } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 export interface DomainOutboxEvent {
   eventType: string;
@@ -9,12 +9,12 @@ export interface DomainOutboxEvent {
 
 /**
  * Rejestruje zdarzenie wyjściowe w tabeli outbox_events.
- * Może być wywoływana wewnątrz transakcji bazodanowej `tx` dla zagwarantowania spójności.
+ * Może być wywoływana wewnątrz transakcji bazodanowej `tx` lub z wywołania głównego `db`.
  */
 export async function recordOutboxEvent(
   eventType: string,
   payload: Record<string, any>,
-  dbTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]
+  dbTx?: any
 ): Promise<number> {
   const client = dbTx || db;
   const jsonPayload = JSON.stringify(payload);
@@ -44,7 +44,6 @@ export async function processPendingOutboxEvents(batchSize: number = 10): Promis
 
   for (const event of pendingEvents) {
     try {
-      // Ustaw stan na processing
       await db
         .update(outboxEvents)
         .set({ status: 'processing' })
@@ -52,10 +51,8 @@ export async function processPendingOutboxEvents(batchSize: number = 10): Promis
 
       const payload = JSON.parse(event.payload);
 
-      // Tutaj następuje rejestracja/wysyłka powiadomień SMS / Push / Email / Alerty w tle
       console.log(`[Outbox Worker] Processing event #${event.id} (${event.eventType}):`, payload);
 
-      // Symulacja udanej obsługi zdarzenia
       await db
         .update(outboxEvents)
         .set({

@@ -11,7 +11,11 @@ import {
   ClipboardList, 
   Package, 
   DollarSign, 
-  Settings
+  Settings,
+  PartyPopper,
+  AlertTriangle,
+  BarChart3,
+  ShieldCheck
 } from 'lucide-react';
 import { hasPermission } from '@/lib/permissions';
 
@@ -34,6 +38,22 @@ export default function DashboardPage() {
       href: '/schedule',
       icon: CalendarDays,
       color: 'bg-[#186f75] hover:bg-[#1f878e]',
+      show: true,
+    },
+    {
+      title: 'CENTRUM ALERTÓW',
+      subtitle: 'Wyjątki, manka i anomalia',
+      href: '/alerts',
+      icon: AlertTriangle,
+      color: 'bg-[#8a2be2] hover:bg-[#9932cc]',
+      show: true,
+    },
+    {
+      title: 'REZERWACJE & EVENTY',
+      subtitle: 'Imprezy i rezerwacje toru',
+      href: '/events',
+      icon: PartyPopper,
+      color: 'bg-[#d97706] hover:bg-[#b45309]',
       show: true,
     },
     {
@@ -77,12 +97,28 @@ export default function DashboardPage() {
       show: hasPermission(user, 'inventory:view'),
     },
     {
+      title: 'EXECUTIVE ANALITYKA',
+      subtitle: 'Dashboard finansowy Właściciela',
+      href: '/analytics',
+      icon: BarChart3,
+      color: 'bg-[#2563eb] hover:bg-[#1d4ed8]',
+      show: hasPermission(user, 'payroll:view') || (user as any)?.role === 'owner',
+    },
+    {
       title: 'WYPŁATY / PAYROLL',
       subtitle: 'Rozliczenia stawek i premii',
       href: '/admin/payroll',
       icon: DollarSign,
       color: 'bg-[#186f75] hover:bg-[#1f878e]',
       show: hasPermission(user, 'payroll:view'),
+    },
+    {
+      title: 'BEZPIECZEŃSTWO & SESJE',
+      subtitle: 'Aktywne urządzenia i tokeny',
+      href: '/settings/security',
+      icon: ShieldCheck,
+      color: 'bg-[#475569] hover:bg-[#334155]',
+      show: true,
     },
     {
       title: 'USTAWIENIA & KONTO',

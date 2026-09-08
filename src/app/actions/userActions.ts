@@ -126,7 +126,7 @@ export async function logAuditEvent(
   userId: number | null,
   entityType: string,
   entityId: number,
-  action: 'UPDATE' | 'DELETE' | 'INSERT',
+  action: 'UPDATE' | 'DELETE' | 'INSERT' | 'CORRECTION' | 'TRANSITION',
   oldValue: any,
   newValue: any
 ) {

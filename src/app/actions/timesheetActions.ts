@@ -6,6 +6,9 @@ import { eq, and, like, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import { logAuditEvent } from "./userActions";
 import { hasPermission } from "@/lib/permissions";
+import { canTransition } from "@/lib/workflow";
+import { executeIdempotentAction, runTransaction } from "@/lib/transaction";
+import { AnomalyEngine } from "@/services/anomalyEngine";
 
 export interface TimesheetEntry {
   id?: number;
@@ -14,10 +17,16 @@ export interface TimesheetEntry {
   startTime: string; // HH:MM
   endTime: string; // HH:MM
   remarks: string | null;
+  status?: string;
   isLocked: boolean;
   userName?: string;
   position?: string;
   version?: number;
+  effectiveAt?: string | null;
+  correctedAt?: Date | null;
+  originalId?: number | null;
+  reasonCode?: string | null;
+  reasonText?: string | null;
 }
 
 export async function checkTimesheetLocked(year: number, month: number, user: any) {
@@ -26,9 +35,7 @@ export async function checkTimesheetLocked(year: number, month: number, user: an
   }
 
   const now = new Date();
-  
-  // Ostatni dzień miesiąca
-  const lastDay = new Date(year, month, 0); // month jest 1-indexed, więc 0 daje ostatni dzień poprzedniego miesiąca.
+  const lastDay = new Date(year, month, 0);
   lastDay.setHours(22, 0, 0, 0);
 
   return now.getTime() > lastDay.getTime();
@@ -53,31 +60,30 @@ export async function getTimesheets(userId: number, year: number, month: number)
         )
       );
 
-    // Pobierz historię stawek dla użytkownika
     const userHistory = await db
       .select()
       .from(salaryHistory)
       .where(eq(salaryHistory.userId, userId));
 
-    // Pobierz aktualną stawkę z tabeli users jako fallback
     const userResult = await db
       .select({ hourlyRate: users.hourlyRate })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    
+
     const fallbackRate = userResult.length > 0 ? userResult[0].hourlyRate : 0;
 
     let estimatedPayout = 0;
     results.forEach(t => {
       const [sh, sm] = t.startTime.split(':').map(Number);
       const [eh, em] = t.endTime.split(':').map(Number);
-      const diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
-      if (diffSec <= 0) return;
+      let diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
+      if (diffSec <= 0) diffSec += 86400; // Przejście przez północ
 
       const entryHours = diffSec / 3600;
+      const effectiveDate = t.effectiveAt || t.date;
       const matchedRate = userHistory.find(h => {
-        return h.validFrom <= t.date && (!h.validTo || h.validTo >= t.date);
+        return h.validFrom <= effectiveDate && (!h.validTo || h.validTo >= effectiveDate);
       });
       const rate = matchedRate ? matchedRate.hourlyRate : fallbackRate;
       estimatedPayout += entryHours * rate;
@@ -94,8 +100,6 @@ export async function getTimesheets(userId: number, year: number, month: number)
   }
 }
 
-
-
 export async function saveTimesheet(
   id: number | undefined,
   userId: number,
@@ -103,142 +107,134 @@ export async function saveTimesheet(
   startTime: string,
   endTime: string,
   remarks: string | null,
-  clientVersion?: number
+  clientVersion?: number,
+  idempotencyKey?: string,
+  reasonCode?: string,
+  reasonText?: string
 ) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
-  const user = session.user;
-  const targetUserId = Number(userId);
-  const currentUserId = Number((session.user as any).id);
-  const executorId = currentUserId;
+  const executorId = Number((session.user as any).id);
+  const userRole = (session.user as any).role || 'employee';
 
-  if (targetUserId !== currentUserId && !hasPermission(session.user, 'timesheet:edit_all')) {
+  if (userId !== executorId && !hasPermission(session.user, 'timesheet:edit_all')) {
     return { success: false, error: "Brak uprawnień do edycji kart godzin innych pracowników." };
   }
 
-  // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
-  const [targetYear, targetMonth] = dateStr.split('-').map(Number);
-  const dayNum = Number(dateStr.split('-')[2]);
+  return (await executeIdempotentAction(executorId, 'saveTimesheet', idempotencyKey, async (tx) => {
+    const client = tx || db;
 
-  // Sprawdzanie blokady
-  const isLocked = await checkTimesheetLocked(targetYear, targetMonth, user);
-  if (isLocked) {
-    return { success: false, error: "Edycja karty godzin na ten miesiąc została zablokowana (minęła godzina 22:00 ostatniego dnia miesiąca)." };
-  }
-
-  try {
     if (id) {
-      // Pobierz stary wpis do logowania audytu i weryfikacji wersji
-      const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
+      const existing = await client.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
       if (existing.length === 0) return { success: false, error: "Nie znaleziono wpisu." };
 
-      // WALIDACJA TWARDA (Hard check)
-      if (dayNum < 16 && (existing[0].isLocked || isLocked)) {
-        throw new Error("Modyfikacja zablokowana: edycja pierwszej połowy miesiąca jest zablokowana.");
+      const current = existing[0];
+      const transitionCheck = canTransition('timesheet', current.status || 'draft', current.status || 'draft', { id: executorId, role: userRole });
+
+      // Jeśli status to LOCKED lub zablokowany, utwórz wpis KOREKTY
+      if (current.status === 'locked' || current.isLocked) {
+        if (!reasonCode || !reasonText) {
+          return { success: false, error: "Modyfikacja zablokowanego wpisu wymaga podania powodu (reasonCode i reasonText)." };
+        }
+
+        const [correctionRes] = await client.insert(timesheets).values({
+          userId,
+          date: dateStr,
+          startTime,
+          endTime,
+          remarks: `Korekta wpisu #${id}: ${remarks || ''}`,
+          status: 'submitted',
+          isLocked: false,
+          effectiveAt: dateStr,
+          correctedAt: new Date(),
+          originalId: id,
+          reasonCode,
+          reasonText,
+          createdById: executorId,
+          isDemo: (session.user as any).isDemo === true,
+          version: 1
+        });
+
+        const newId = (correctionRes as any).insertId || 0;
+        await logAuditEvent(executorId, 'timesheet', newId, 'CORRECTION', current, {
+          originalId: id,
+          startTime,
+          endTime,
+          reasonCode,
+          reasonText
+        });
+
+        await AnomalyEngine.evaluateTimesheet(newId);
+        return { success: true, correctionId: newId, message: "Korekta została zarejestrowana z datą obowiązywania (effectiveAt)." };
       }
 
-      // Optymistyczne blokowanie
-      if (clientVersion !== undefined && existing[0].version !== clientVersion) {
+      if (clientVersion !== undefined && current.version !== clientVersion) {
         return { success: false, error: "Konflikt edycji: Ten wpis został zmodyfikowany przez innego użytkownika. Odśwież stronę." };
       }
 
-      const nextVersion = existing[0].version + 1;
+      const nextVersion = (current.version || 1) + 1;
 
-      // Zapis logu audytu
-      await logAuditEvent(
-        executorId, 
-        'timesheet', 
-        id, 
-        'UPDATE', 
-        existing[0], 
-        { startTime, endTime, remarks, version: nextVersion }
-      );
+      await logAuditEvent(executorId, 'timesheet', id, 'UPDATE', current, { startTime, endTime, remarks, version: nextVersion });
 
-      // Aktualizacja
-      await db
+      await client
         .update(timesheets)
-        .set({ startTime, endTime, remarks, version: nextVersion, isLocked: false })
-        .where(and(eq(timesheets.id, id), eq(timesheets.version, existing[0].version)));
+        .set({ startTime, endTime, remarks, version: nextVersion })
+        .where(and(eq(timesheets.id, id), eq(timesheets.version, current.version)));
+
+      await AnomalyEngine.evaluateTimesheet(id);
     } else {
-      // Wstawianie
-      const [insertResult] = await db.insert(timesheets).values({
+      const [insertResult] = await client.insert(timesheets).values({
         userId,
         date: dateStr,
         startTime,
         endTime,
         remarks,
+        status: 'draft',
         isLocked: false,
+        createdById: executorId,
         isDemo: (session.user as any).isDemo === true,
         version: 1
       });
 
       const newId = (insertResult as any).insertId || 0;
-      await logAuditEvent(
-        executorId,
-        'timesheet',
-        newId,
-        'INSERT',
-        null,
-        { userId, date: dateStr, startTime, endTime, remarks, version: 1 }
-      );
+      await logAuditEvent(executorId, 'timesheet', newId, 'INSERT', null, { userId, date: dateStr, startTime, endTime, remarks, version: 1 });
+
+      await AnomalyEngine.evaluateTimesheet(newId);
     }
     return { success: true };
-  } catch (e: any) {
-    console.error("Błąd zapisu karty godzin:", e);
-    if (e.message && e.message.includes("Modyfikacja zablokowana")) {
-      throw e;
-    }
-    return { success: false, error: "Błąd zapisu w bazie danych." };
-  }
+  })).data;
 }
 
-export async function deleteTimesheet(id: number) {
+export async function deleteTimesheet(id: number, reasonCode?: string, reasonText?: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
-  const userRole = (session.user as any).role;
-  const executorId = session.user ? Number((session.user as any).id) : null;
+  const executorId = Number((session.user as any).id);
+  const userRole = (session.user as any).role || 'employee';
 
   try {
     const existing = await db.select().from(timesheets).where(eq(timesheets.id, id)).limit(1);
     if (existing.length === 0) return { success: false, error: "Nie znaleziono wpisu." };
 
-    const targetUserId = existing[0].userId;
-    const currentUserId = Number((session.user as any).id);
-    if (targetUserId !== currentUserId && !hasPermission(session.user, 'timesheet:edit_all')) {
-      return { success: false, error: "Brak uprawnień do usuwania kart godzin innych pracowników." };
+    const current = existing[0];
+    if (current.userId !== executorId && !hasPermission(session.user, 'timesheet:edit_all')) {
+      return { success: false, error: "Brak uprawnień do usuwania wpisów." };
     }
 
-    // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
-    const [targetYear, targetMonth] = existing[0].date.split('-').map(Number);
-    const dayNum = Number(existing[0].date.split('-')[2]);
-
-    const isLocked = await checkTimesheetLocked(targetYear, targetMonth, session.user);
-    if (isLocked) {
-      return { success: false, error: "Edycja zablokowana." };
+    if (current.status === 'locked' || current.isLocked) {
+      return { success: false, error: "Rekord zablokowany (LOCKED). Nie można go bezpośrednio usunąć." };
     }
 
-    // WALIDACJA TWARDA (Hard check)
-    if (dayNum < 16 && (existing[0].isLocked || isLocked)) {
-      throw new Error("Modyfikacja zablokowana: edycja pierwszej połowy miesiąca jest zablokowana.");
-    }
-
-    // Zapis logu audytu
-    await logAuditEvent(executorId, 'timesheet', id, 'DELETE', existing[0], null);
-
+    await logAuditEvent(executorId, 'timesheet', id, 'DELETE', current, null);
     await db.delete(timesheets).where(eq(timesheets.id, id));
     return { success: true };
   } catch (e: any) {
     console.error("Błąd usuwania wpisu:", e);
-    if (e.message && e.message.includes("Modyfikacja zablokowana")) {
-      throw e;
-    }
     return { success: false, error: "Błąd serwera podczas usuwania wpisu." };
   }
 }
 
-// Metoda dla Menedżera - pobierz wszystkie karty godzin
 export async function getAllTimesheets(year: number, month: number) {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
@@ -259,9 +255,12 @@ export async function getAllTimesheets(year: number, month: number) {
         startTime: timesheets.startTime,
         endTime: timesheets.endTime,
         remarks: timesheets.remarks,
+        status: timesheets.status,
         isLocked: timesheets.isLocked,
         userName: users.displayName,
-        position: users.position
+        position: users.position,
+        reasonCode: timesheets.reasonCode,
+        reasonText: timesheets.reasonText
       })
       .from(timesheets)
       .innerJoin(users, eq(timesheets.userId, users.id))
@@ -277,7 +276,7 @@ export async function getAllTimesheets(year: number, month: number) {
 export async function getPayrollSummary(year: number, month: number) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
-  const role = (session.user as any).role;
+
   if (!hasPermission(session.user, 'payroll:view')) {
     return { success: false, error: "Brak uprawnień" };
   }
@@ -287,7 +286,6 @@ export async function getPayrollSummary(year: number, month: number) {
     const monthStr = String(month).padStart(2, '0');
     const pattern = `${year}-${monthStr}-%`;
 
-    // Pobierz wszystkich użytkowników ze stawkami (tylko w obrębie danego środowiska)
     const allUsers = await db
       .select({
         id: users.id,
@@ -299,16 +297,13 @@ export async function getPayrollSummary(year: number, month: number) {
       .from(users)
       .where(eq(users.isDemo, userIsDemo));
 
-    // Pobierz wszystkie wpisy czasu pracy dla tego miesiąca
     const allTimesheets = await db
       .select()
       .from(timesheets)
       .where(and(like(timesheets.date, pattern), eq(timesheets.isDemo, userIsDemo)));
 
-    // Pobierz historię wszystkich stawek
     const allSalaryHistory = await db.select().from(salaryHistory);
 
-    // Wylicz sumę godzin i wypłatę
     const payrollData = allUsers.map(user => {
       const userSheets = allTimesheets.filter(t => t.userId === user.id);
       const userHistory = allSalaryHistory.filter(h => h.userId === user.id);
@@ -319,15 +314,15 @@ export async function getPayrollSummary(year: number, month: number) {
       userSheets.forEach(t => {
         const [sh, sm] = t.startTime.split(':').map(Number);
         const [eh, em] = t.endTime.split(':').map(Number);
-        const diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
-        if (diffSec <= 0) return;
+        let diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
+        if (diffSec <= 0) diffSec += 86400;
 
         totalSeconds += diffSec;
         const entryHours = diffSec / 3600;
 
-        // Znajdź stawkę ważną dla danej daty wpisu
+        const effectiveDate = t.effectiveAt || t.date;
         const matchedRate = userHistory.find(h => {
-          return h.validFrom <= t.date && (!h.validTo || h.validTo >= t.date);
+          return h.validFrom <= effectiveDate && (!h.validTo || h.validTo >= effectiveDate);
         });
 
         const rate = matchedRate ? matchedRate.hourlyRate : user.hourlyRate;
