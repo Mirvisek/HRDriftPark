@@ -131,6 +131,9 @@ export async function saveTimesheet(
 
       const current = existing[0];
       const transitionCheck = canTransition('timesheet', current.status || 'draft', current.status || 'draft', { id: executorId, role: userRole });
+      if (!transitionCheck.allowed) {
+        return { success: false, error: transitionCheck.reason };
+      }
 
       // Jeśli status to LOCKED lub zablokowany, utwórz wpis KOREKTY
       if (current.status === 'locked' || current.isLocked) {

@@ -61,6 +61,11 @@ export async function saveSubscriptionAction(sub: {
 }
 
 export async function removeSubscriptionAction(endpoint: string) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, error: "Brak autoryzacji" };
+  }
+
   try {
     await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
     console.log(`[Push Subscription] Usunięto subskrypcję dla endpointu: ${endpoint}`);

@@ -33,18 +33,33 @@ export async function resolveAlertAction(alertId: number, status: 'acknowledged'
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
+  const role = (session.user as any).role;
+  const canManage = role === 'owner' || role === 'manager' || hasPermission(session.user, 'timesheet:edit_all') || hasPermission(session.user, 'payroll:view');
+  if (!canManage) {
+    return { success: false, error: "Brak uprawnień do obsługi alertów." };
+  }
+
   const userId = Number((session.user as any).id);
+  const now = new Date();
 
   try {
+    const updatePayload: any = {
+      status,
+      reasonCode,
+      reasonText
+    };
+
+    if (status === 'acknowledged') {
+      updatePayload.acknowledgedBy = userId;
+      updatePayload.acknowledgedAt = now;
+    } else {
+      updatePayload.resolvedBy = userId;
+      updatePayload.resolvedAt = now;
+    }
+
     await db
       .update(alerts)
-      .set({
-        status,
-        resolvedBy: userId,
-        resolvedAt: new Date(),
-        reasonCode,
-        reasonText
-      })
+      .set(updatePayload)
       .where(eq(alerts.id, alertId));
 
     return { success: true };

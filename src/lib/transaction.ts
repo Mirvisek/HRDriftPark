@@ -58,31 +58,31 @@ export async function executeIdempotentAction<T>(
   }
 
   // 2. Rejestruj wpis początkowy lub wykonaj w transakcji
-  return await runTransaction(async (tx) => {
-    // Rejestracja w tabeli z unikaniem duplikatów poprzez wysłanie rekordu 'pending'
-    try {
-      await tx.insert(idempotencyKeys).values({
-        userId,
-        operation,
-        idempotencyKey: cleanKey,
-        status: 'pending'
-      });
-    } catch (err: any) {
-      // Jeśli nastąpiła kolizja UNIQUE(operation, idempotencyKey)
-      const existing = await tx
-        .select()
-        .from(idempotencyKeys)
-        .where(and(eq(idempotencyKeys.operation, operation), eq(idempotencyKeys.idempotencyKey, cleanKey)))
-        .limit(1);
+  try {
+    return await runTransaction(async (tx) => {
+      // Rejestracja w tabeli z unikaniem duplikatów poprzez wysłanie rekordu 'pending'
+      try {
+        await tx.insert(idempotencyKeys).values({
+          userId,
+          operation,
+          idempotencyKey: cleanKey,
+          status: 'pending'
+        });
+      } catch (err: any) {
+        // Jeśli nastąpiła kolizja UNIQUE(operation, idempotencyKey)
+        const existing = await tx
+          .select()
+          .from(idempotencyKeys)
+          .where(and(eq(idempotencyKeys.operation, operation), eq(idempotencyKeys.idempotencyKey, cleanKey)))
+          .limit(1);
 
-      if (existing.length > 0 && existing[0].status === 'completed' && existing[0].result) {
-        return { fromCache: true, data: JSON.parse(existing[0].result) as T };
+        if (existing.length > 0 && existing[0].status === 'completed' && existing[0].result) {
+          return { fromCache: true, data: JSON.parse(existing[0].result) as T };
+        }
+        throw new Error(`Wykryto zduplikowaną operację ${operation} dla klucza '${cleanKey}'.`);
       }
-      throw new Error(`Wykryto zduplikowaną operację ${operation} dla klucza '${cleanKey}'.`);
-    }
 
-    // 3. Wykonanie właściwej akcji biznesowej
-    try {
+      // 3. Wykonanie właściwej akcji biznesowej
       const data = await action(tx);
       const jsonResult = JSON.stringify(data ?? {});
 
@@ -95,15 +95,19 @@ export async function executeIdempotentAction<T>(
         .where(and(eq(idempotencyKeys.operation, operation), eq(idempotencyKeys.idempotencyKey, cleanKey)));
 
       return { fromCache: false, data };
-    } catch (actionErr: any) {
-      await tx
+    });
+  } catch (actionErr: any) {
+    try {
+      await db
         .update(idempotencyKeys)
         .set({
           status: 'failed',
           result: JSON.stringify({ error: actionErr.message || 'Wystąpił błąd' })
         })
         .where(and(eq(idempotencyKeys.operation, operation), eq(idempotencyKeys.idempotencyKey, cleanKey)));
-      throw actionErr;
+    } catch (e) {
+      // Błąd zapisu statusu failed w bazie
     }
-  });
+    throw actionErr;
+  }
 }

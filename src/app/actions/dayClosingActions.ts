@@ -5,7 +5,7 @@ import { operationalDayClosing, shiftCashReconciliations, timesheets, shiftCheck
 import { eq, and } from "drizzle-orm";
 import { auth } from "@/auth";
 import { runTransaction } from "@/lib/transaction";
-import { canTransition } from "@/lib/workflow";
+import { hasPermission } from "@/lib/permissions";
 
 export async function getDayClosingStatusAction(dateStr: string) {
   const session = await auth();
@@ -48,6 +48,10 @@ export async function closeOperationalDayAction(
   const userRole = (session.user as any).role || 'employee';
   const venueId = (session.user as any).venueId || 1;
   const isDemo = (session.user as any).isDemo === true;
+
+  if (userRole !== 'owner' && userRole !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
+    return { success: false, error: "Brak uprawnień do zamykania dnia operacyjnego." };
+  }
 
   if (isForceClose && (!reasonCode || !reasonText)) {
     return { success: false, error: "Wymuszone zamknięcie dnia wymaga wskazania powodu (reasonCode i reasonText)." };

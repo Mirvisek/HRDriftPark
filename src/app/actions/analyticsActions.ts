@@ -4,10 +4,15 @@ import { db } from "@/db";
 import { shiftCashReconciliations, timesheets, users, warehouseProducts, warehouseBatches } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 
 export async function getOwnerAnalyticsAction() {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+
+  if (!hasPermission(session.user, 'payroll:view') && (session.user as any).role !== 'owner') {
+    return { success: false, error: "Brak uprawnień do analityki finansowej." };
+  }
 
   const isDemo = (session.user as any).isDemo === true;
 

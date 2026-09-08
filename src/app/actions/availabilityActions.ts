@@ -72,6 +72,10 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
   }
   
   const userRole = (session.user as any).role;
+  const loggedUserId = Number((session.user as any).id);
+  if (userId !== loggedUserId && userRole !== 'owner' && userRole !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
+    return { success: false, error: "Brak uprawnień do edycji dyspozycyjności innych pracowników." };
+  }
   
   const isLocked = await checkIsLocked(dateStr, userRole);
   if (isLocked) {
