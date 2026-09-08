@@ -283,10 +283,11 @@ export async function getPayrollSummary(year: number, month: number) {
   }
 
   try {
+    const userIsDemo = (session.user as any).isDemo === true;
     const monthStr = String(month).padStart(2, '0');
     const pattern = `${year}-${monthStr}-%`;
 
-    // Pobierz wszystkich użytkowników ze stawkami
+    // Pobierz wszystkich użytkowników ze stawkami (tylko w obrębie danego środowiska)
     const allUsers = await db
       .select({
         id: users.id,
@@ -295,13 +296,14 @@ export async function getPayrollSummary(year: number, month: number) {
         position: users.position,
         hourlyRate: users.hourlyRate
       })
-      .from(users);
+      .from(users)
+      .where(eq(users.isDemo, userIsDemo));
 
     // Pobierz wszystkie wpisy czasu pracy dla tego miesiąca
     const allTimesheets = await db
       .select()
       .from(timesheets)
-      .where(like(timesheets.date, pattern));
+      .where(and(like(timesheets.date, pattern), eq(timesheets.isDemo, userIsDemo)));
 
     // Pobierz historię wszystkich stawek
     const allSalaryHistory = await db.select().from(salaryHistory);

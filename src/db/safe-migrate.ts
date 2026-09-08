@@ -482,6 +482,15 @@ async function main() {
     console.error("Błąd podczas generowania stawek/uprawnień początkowych:", e.message);
   }
 
+  // 6. Usuwanie starych kont testowych z bazy produkcyjnej MariaDB
+  try {
+    console.log("Usuwanie starych kont testowych z oficjalnej bazy MariaDB...");
+    await db.execute(sql.raw("DELETE FROM `users` WHERE `is_demo` = 1 OR `email` LIKE 'demo.%' OR `display_name` LIKE '%Demo%';"));
+    console.log("[✓] Usunięto stare konta testowe z produkcyjnej bazy danych.");
+  } catch (e: any) {
+    console.error("Błąd usuwania kont demo w bazie:", e.message);
+  }
+
   console.log("Bezpieczna migracja bazy danych zakończona pomyślnie!");
   process.exit(0);
 }
