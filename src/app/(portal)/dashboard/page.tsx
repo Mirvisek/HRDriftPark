@@ -38,7 +38,7 @@ export default function DashboardPage() {
       href: '/schedule',
       icon: CalendarDays,
       color: 'bg-[#186f75] hover:bg-[#1f878e]',
-      show: true,
+      show: hasPermission(user, 'schedule:view'),
     },
     {
       title: 'CENTRUM ALERTÓW',
@@ -46,7 +46,7 @@ export default function DashboardPage() {
       href: '/alerts',
       icon: AlertTriangle,
       color: 'bg-[#8a2be2] hover:bg-[#9932cc]',
-      show: true,
+      show: hasPermission(user, 'timesheet:view_all') || hasPermission(user, 'schedule:edit') || hasPermission(user, 'payroll:view') || (user as any)?.role === 'owner' || (user as any)?.role === 'manager',
     },
     {
       title: 'REZERWACJE & EVENTY',
@@ -70,7 +70,7 @@ export default function DashboardPage() {
       href: '/timesheet',
       icon: Clock,
       color: 'bg-[#186f75] hover:bg-[#1f878e]',
-      show: true,
+      show: hasPermission(user, 'timesheet:view_own'),
     },
     {
       title: 'CHECKLISTY',
@@ -86,7 +86,7 @@ export default function DashboardPage() {
       href: '/tasks',
       icon: ClipboardList,
       color: 'bg-[#186f75] hover:bg-[#1f878e]',
-      show: true,
+      show: hasPermission(user, 'tasks:view'),
     },
     {
       title: 'MAGAZYN & WYDANIA',

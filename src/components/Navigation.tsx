@@ -109,11 +109,13 @@ export function Navigation({ user }: NavigationProps) {
       label: "Checklisty",
       icon: ClipboardCheck,
     },
-    {
-      href: "/tasks",
-      label: "Zadania",
-      icon: ClipboardList,
-    },
+    ...(hasPermission(user, 'tasks:view') ? [
+      {
+        href: "/tasks",
+        label: "Zadania",
+        icon: ClipboardList,
+      }
+    ] : []),
     ...(hasPermission(user, 'inventory:view') ? [
       {
         href: "/magazyn",
