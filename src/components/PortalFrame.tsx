@@ -11,6 +11,7 @@ interface PortalFrameProps {
   user: {
     name?: string | null;
     email?: string | null;
+    isDemo?: boolean;
   };
 }
 
@@ -18,6 +19,7 @@ export function PortalFrame({ children, user }: PortalFrameProps) {
   const router = useRouter();
   const pathname = usePathname();
   const userName = user?.name || user?.email || 'Pracownik';
+  const isDemo = user?.isDemo === true;
 
   const handleBack = () => {
     if (pathname === '/dashboard' || pathname === '/') {
@@ -29,6 +31,13 @@ export function PortalFrame({ children, user }: PortalFrameProps) {
 
   return (
     <div className="min-h-screen bg-[#141414] text-[#e0e0e0] flex flex-col justify-between font-sans">
+      {/* BANER DEMO */}
+      {isDemo && (
+        <div className="bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-600 text-brand-dark px-4 py-1.5 text-center text-[11px] md:text-xs font-black tracking-wider uppercase flex items-center justify-center gap-2 shadow-md shrink-0">
+          <span>🎭 NIEZALEŻNY TRYB DEMO — Prracujesz na danych odizolowanych (0 wpływu na produkcję)</span>
+        </div>
+      )}
+
       {/* GÓRNY PASEK NAWIGACJI (HEADER BAR) */}
       <header className="bg-[#333333] border-b border-white/10 text-white px-4 md:px-8 py-3 flex items-center justify-between shadow-md shrink-0 sticky top-0 z-30">
         <button
