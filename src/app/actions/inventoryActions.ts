@@ -351,7 +351,9 @@ export async function deliverBulkProductsAction(formData: FormData) {
 export async function issueProductAction(data: {
   productId: number;
   quantity: number;
-  venue: string;
+  venue?: string;
+  reason?: string;
+  equipmentTarget?: string;
   remarks?: string;
 }) {
   const session = await checkAuth('inventory:issue');
@@ -362,7 +364,6 @@ export async function issueProductAction(data: {
   try {
     const qty = Number(data.quantity);
     if (isNaN(qty) || qty <= 0) return { success: false, error: "Ilość musi być większa od zera." };
-    if (!data.venue?.trim()) return { success: false, error: "Nazwa lokalu docelowego jest wymagana." };
     
     const product = await db.select().from(warehouseProducts).where(eq(warehouseProducts.id, data.productId)).limit(1);
     if (product.length === 0) return { success: false, error: "Produkt nie istnieje." };
@@ -382,6 +383,17 @@ export async function issueProductAction(data: {
     }
     
     let remainingToIssue = qty;
+
+    const issueReason = data.reason || 'Serwis / Wymiana części';
+    const targetLocation = data.equipmentTarget 
+      ? `${data.venue || 'Lokal'} [${data.equipmentTarget}]`
+      : (data.venue || 'Magazyn Główny');
+
+    const formattedRemarks = [
+      `Powód: ${issueReason}`,
+      data.equipmentTarget ? `Zamontowano w: ${data.equipmentTarget}` : null,
+      data.remarks ? `Uwagi: ${data.remarks}` : null
+    ].filter(Boolean).join(' | ');
     
     for (const batch of batches) {
       if (remainingToIssue <= 0) break;
@@ -399,8 +411,8 @@ export async function issueProductAction(data: {
         userId,
         type: 'issue',
         quantity: -issueFromThisBatch,
-        source: data.venue.trim(),
-        remarks: data.remarks?.trim() || null,
+        source: targetLocation,
+        remarks: formattedRemarks,
         venueId: userVenueId,
         isDemo: userIsDemo
       });

@@ -25,7 +25,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   TrendingUp,
-  FileText
+  FileText,
+  Wrench
 } from 'lucide-react';
 import { hasPermission } from '@/lib/permissions';
 import { 
@@ -130,7 +131,9 @@ export default function WarehousePage() {
   const [showIssueModal, setShowIssueModal] = useState<number | null>(null); // productId
   const [issueForm, setIssueForm] = useState({
     quantity: 1,
-    venue: 'Kraków Rynek',
+    reason: 'Serwis / Wymiana części',
+    equipmentTarget: '',
+    venue: 'Centrala / Tor',
     remarks: ''
   });
 
@@ -596,13 +599,16 @@ export default function WarehousePage() {
   };
 
   // -------------------------------------------------------------
-  // OPERACJE WYDAŃ
+  // OPERACJE WYDAŃ / ZDJĘCIA ZE STANU
   // -------------------------------------------------------------
   const openIssueModal = (p: any) => {
     setShowIssueModal(p.id);
+    const defaultVenue = presetLocations.length > 0 ? presetLocations[0] : 'Centrala / Tor';
     setIssueForm({
       quantity: 1,
-      venue: 'Kraków Rynek',
+      reason: 'Serwis / Wymiana części',
+      equipmentTarget: '',
+      venue: defaultVenue,
       remarks: ''
     });
   };
@@ -618,7 +624,7 @@ export default function WarehousePage() {
       });
 
       if (res.success) {
-        setStatusMsg({ type: 'success', text: 'Zatwierdzono wydanie produktu na lokal.' });
+        setStatusMsg({ type: 'success', text: 'Zatwierdzono zdjęcie z magazynu / zużycie w serwisie.' });
         setShowIssueModal(null);
         const [productsRes, dashRes, historyRes] = await Promise.all([
           getProductsAction(),
@@ -629,7 +635,7 @@ export default function WarehousePage() {
         if (dashRes.success) setDashboard(dashRes.data || {});
         if (historyRes.success) setHistory(historyRes.data || []);
       } else {
-        setStatusMsg({ type: 'error', text: res.error || 'Błąd wydania produktu.' });
+        setStatusMsg({ type: 'error', text: res.error || 'Błąd zdjęcia produktu ze stanu.' });
       }
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err.message });
@@ -1277,9 +1283,10 @@ export default function WarehousePage() {
                               {canIssue && p.status === 'active' && p.currentStock > 0 && (
                                 <button
                                   onClick={() => openIssueModal(p)}
-                                  className="px-2 py-1 bg-brand-red/10 border border-brand-red/20 hover:bg-brand-red/20 hover:border-brand-red/30 text-brand-red text-[10px] font-bold uppercase rounded cursor-pointer transition"
+                                  className="px-2.5 py-1 bg-brand-red/10 border border-brand-red/20 hover:bg-brand-red/20 hover:border-brand-red/30 text-brand-red text-[10px] font-bold uppercase rounded cursor-pointer transition flex items-center gap-1"
                                 >
-                                  Wydaj
+                                  <Wrench className="w-3 h-3" />
+                                  Zdejmij ze stanu
                                 </button>
                               )}
                               {canManage && (
@@ -2756,15 +2763,24 @@ export default function WarehousePage() {
       {/* ------------------------------------------------------------- */}
       {/* MODAL: SZYBKIE WYDANIE (Z POZIOMU KATALOGU)                      */}
       {/* ------------------------------------------------------------- */}
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL: ZDJĘCIE ZE STANU / ZUŻYCIE W SERWISIE                      */}
+      {/* ------------------------------------------------------------- */}
       {showIssueModal && activeTab === 'products' && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card max-w-md w-full bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 relative overflow-hidden animate-fadeIn">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-red to-orange-500" />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass-card max-w-lg w-full bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-red via-brand-gold to-brand-red" />
             
             <div className="flex justify-between items-center border-b border-white/5 pb-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                Wydaj z magazynu: {products.find(p => p.id === showIssueModal)?.name}
-              </h3>
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-brand-gold" />
+                  <span>Zdejmij ze stanu / Zużyj część</span>
+                </h3>
+                <p className="text-[10px] text-brand-gold font-mono font-bold mt-0.5">
+                  {products.find(p => p.id === showIssueModal)?.name} (Dostępne: {products.find(p => p.id === showIssueModal)?.currentStock || 0} {products.find(p => p.id === showIssueModal)?.unit})
+                </p>
+              </div>
               <button 
                 onClick={() => setShowIssueModal(null)}
                 className="p-1.5 bg-[#141414] hover:bg-[#222] rounded-lg text-white transition cursor-pointer border border-white/5"
@@ -2774,9 +2790,27 @@ export default function WarehousePage() {
             </div>
 
             <form onSubmit={handleIssueProduct} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Ilość wydawana</label>
+                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Powód zdjęcia / Zużycia</label>
+                  <select
+                    value={issueForm.reason}
+                    onChange={e => setIssueForm(prev => ({ ...prev, reason: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  >
+                    <option value="Serwis / Wymiana części">🛠️ Serwis / Wymiana części</option>
+                    <option value="Zużycie eksploatacyjne">⛽ Zużycie eksploatacyjne</option>
+                    <option value="Wydanie na lokal / tor">🏁 Wydanie na lokal / tor</option>
+                    <option value="Uszkodzenie / Złomowanie">⚠️ Uszkodzenie / Złomowanie</option>
+                    <option value="Inne / Korekta">📋 Inne / Korekta</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">
+                    Ilość ({products.find(p => p.id === showIssueModal)?.unit || 'szt.'})
+                  </label>
                   <input
                     type="number"
                     min="0.01"
@@ -2785,29 +2819,43 @@ export default function WarehousePage() {
                     required
                     value={issueForm.quantity}
                     onChange={e => setIssueForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
-                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold font-mono"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Lokal docelowy</label>
+                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Lokalizacja / Lokal</label>
                   <select
                     value={issueForm.venue}
                     onChange={e => setIssueForm(prev => ({ ...prev, venue: e.target.value }))}
                     required
                     className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition"
                   >
-                    <option value="Kraków Rynek">Kraków Rynek</option>
-                    <option value="Warszawa Bemowo">Warszawa Bemowo</option>
-                    <option value="Katowice Centrum">Katowice Centrum</option>
-                    <option value="Gdańsk Wrzeszcz">Gdańsk Wrzeszcz</option>
+                    <option value="Centrala / Tor">Centrala / Tor</option>
+                    {presetLocations.map(loc => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Gdzie zamontowano / Pojazd</label>
+                  <input
+                    type="text"
+                    placeholder="np. Gokart #4 / Silnik #1"
+                    value={issueForm.equipmentTarget}
+                    onChange={e => setIssueForm(prev => ({ ...prev, equipmentTarget: e.target.value }))}
+                    className="w-full px-3 py-2 bg-[#141414] border border-white/10 rounded-lg text-white text-xs focus:outline-none focus:border-brand-gold transition font-bold"
+                  />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Uwagi / Protokół / Kto pobrał</label>
+                <label className="block text-[10px] font-bold text-[#888] uppercase tracking-wider mb-1.5">Opis prac / Uwagi serwisowe</label>
                 <textarea
-                  placeholder="np. Pobrał instruktor Jan Kowalski..."
+                  placeholder="np. Wymieniono napinacz paska na nowy. Stary napinacz zdemontowany..."
                   value={issueForm.remarks}
                   onChange={e => setIssueForm(prev => ({ ...prev, remarks: e.target.value }))}
                   rows={2}
@@ -2826,9 +2874,16 @@ export default function WarehousePage() {
                 <button
                   type="submit"
                   disabled={actionLoading}
-                  className="px-5 py-2 bg-brand-red hover:bg-red-600 text-white text-xs font-black rounded-lg uppercase tracking-wider transition cursor-pointer"
+                  className="px-5 py-2 bg-gradient-to-r from-brand-red to-brand-gold text-brand-dark text-xs font-black rounded-lg uppercase tracking-wider hover:opacity-90 transition cursor-pointer flex items-center gap-1.5"
                 >
-                  Zatwierdź
+                  {actionLoading ? (
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-brand-dark"></div>
+                  ) : (
+                    <>
+                      <Wrench className="w-3.5 h-3.5" />
+                      <span>Zdejmij ze stanu</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
