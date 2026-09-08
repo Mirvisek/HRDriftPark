@@ -31,46 +31,35 @@ async function main() {
 
   console.log("Rozpoczynam BEZPIECZNĄ migrację struktury bazy danych...");
 
-  // 1. Dodanie kolumny version do work_schedule (jeśli nie istnieje)
-  try {
-    console.log("Dodawanie kolumny 'version' do tabeli 'work_schedule'...");
-    await db.execute(sql.raw("ALTER TABLE `work_schedule` ADD COLUMN `version` INT NOT NULL DEFAULT 1;"));
-    console.log("[✓] Pomyślnie dodano kolumnę 'version' do 'work_schedule'.");
-  } catch (e: any) {
-    if (isDuplicateColumnError(e)) {
-      console.log("[i] Kolumna 'version' w 'work_schedule' już istnieje.");
-    } else {
-      console.error("Błąd podczas dodawania kolumny 'version' do 'work_schedule':", e.message);
+  // Helper do bezpiecznego dodawania kolumn
+  const addColumnSafely = async (tableName: string, colDef: string) => {
+    try {
+      await db.execute(sql.raw(`ALTER TABLE \`${tableName}\` ADD COLUMN ${colDef};`));
+      console.log(`[✓] Dodano kolumnę do '${tableName}': ${colDef.split(' ')[0]}`);
+    } catch (e: any) {
+      if (isDuplicateColumnError(e)) {
+        // Ignoruj istniejące kolumny
+      } else {
+        console.error(`Błąd podczas dodawania kolumny do '${tableName}':`, e.cause?.message || e.originalError?.message || e.message);
+      }
     }
-  }
+  };
 
-  // 2. Dodanie kolumny version do timesheets (jeśli nie istnieje)
-  try {
-    console.log("Dodawanie kolumny 'version' do tabeli 'timesheets'...");
-    await db.execute(sql.raw("ALTER TABLE `timesheets` ADD COLUMN `version` INT NOT NULL DEFAULT 1;"));
-    console.log("[✓] Pomyślnie dodano kolumnę 'version' do 'timesheets'.");
-  } catch (e: any) {
-    if (isDuplicateColumnError(e)) {
-      console.log("[i] Kolumna 'version' w 'timesheets' już istnieje.");
-    } else {
-      console.error("Błąd podczas dodawania kolumny 'version' do 'timesheets':", e.message);
-    }
-  }
+  // 1. Wersjonowanie i statusy w tabelach bazowych
+  await addColumnSafely('work_schedule', '`version` INT NOT NULL DEFAULT 1');
+  await addColumnSafely('work_schedule', "`status` ENUM('draft', 'published', 'locked') NOT NULL DEFAULT 'draft'");
+  await addColumnSafely('timesheets', '`version` INT NOT NULL DEFAULT 1');
+  await addColumnSafely('timesheets', "`status` ENUM('draft', 'submitted', 'approved', 'locked') NOT NULL DEFAULT 'draft'");
+  await addColumnSafely('timesheets', '`effective_at` DATE NULL');
+  await addColumnSafely('timesheets', '`corrected_at` TIMESTAMP NULL');
+  await addColumnSafely('timesheets', '`original_id` INT NULL');
+  await addColumnSafely('timesheets', '`reason_code` VARCHAR(100) NULL');
+  await addColumnSafely('timesheets', '`reason_text` TEXT NULL');
+  await addColumnSafely('timesheets', '`created_by_id` INT NULL');
 
-  // 2.5. Dodanie kolumny permissions do users (jeśli nie istnieje)
-  try {
-    console.log("Dodawanie kolumny 'permissions' do tabeli 'users'...");
-    await db.execute(sql.raw("ALTER TABLE `users` ADD COLUMN `permissions` TEXT NOT NULL DEFAULT '';"));
-    console.log("[✓] Pomyślnie dodano kolumnę 'permissions' do 'users'.");
-  } catch (e: any) {
-    if (isDuplicateColumnError(e)) {
-      console.log("[i] Kolumna 'permissions' w 'users' już istnieje.");
-    } else {
-      console.error("Błąd podczas dodawania kolumny 'permissions' do 'users':", e.message);
-    }
-  }
+  await addColumnSafely('users', "`permissions` TEXT NOT NULL DEFAULT ''");
 
-  // 3. Tworzenie tabeli audit_logs
+  // 2. Tworzenie tabeli audit_logs
   try {
     console.log("Tworzenie tabeli 'audit_logs'...");
     await db.execute(sql.raw(`
@@ -82,15 +71,19 @@ async function main() {
         \`action\` VARCHAR(50) NOT NULL,
         \`old_value\` TEXT NULL,
         \`new_value\` TEXT NULL,
+        \`reason_code\` VARCHAR(100) NULL,
+        \`reason_text\` TEXT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
     console.log("[✓] Tabela 'audit_logs' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'audit_logs':", e.message);
+    console.error("Błąd podczas tworzenia tabeli:", e.cause?.message || e.originalError?.message || e.message);
   }
+  await addColumnSafely('audit_logs', '`reason_code` VARCHAR(100) NULL');
+  await addColumnSafely('audit_logs', '`reason_text` TEXT NULL');
 
-  // 4. Tworzenie tabeli salary_history
+  // 3. Tworzenie tabeli salary_history
   try {
     console.log("Tworzenie tabeli 'salary_history'...");
     await db.execute(sql.raw(`
@@ -108,388 +101,240 @@ async function main() {
     console.error("Błąd podczas tworzenia tabeli 'salary_history':", e.message);
   }
 
-  // 4.5. Konwersja kolumn stawek na typ DOUBLE (aby wspierać ułamki np. 31.40)
+  // 4. Tworzenie tabeli user_sessions
   try {
-    console.log("Konwertowanie kolumny 'hourly_rate' w tabeli 'users' na DOUBLE...");
-    await db.execute(sql.raw("ALTER TABLE `users` MODIFY COLUMN `hourly_rate` DOUBLE NOT NULL DEFAULT 0;"));
-    console.log("[✓] Konwersja 'users.hourly_rate' zakończona.");
-  } catch (e: any) {
-    console.error("Błąd konwersji 'users.hourly_rate':", e.message);
-  }
-
-  try {
-    console.log("Konwertowanie kolumny 'hourly_rate' w tabeli 'salary_history' na DOUBLE...");
-    await db.execute(sql.raw("ALTER TABLE `salary_history` MODIFY COLUMN `hourly_rate` DOUBLE NOT NULL;"));
-    console.log("[✓] Konwersja 'salary_history.hourly_rate' zakończona.");
-  } catch (e: any) {
-    console.error("Błąd konwersji 'salary_history.hourly_rate':", e.message);
-  }
-
-  // 4.6. Tworzenie tabel magazynowych
-  try {
-    console.log("Tworzenie tabeli 'warehouse_categories'...");
+    console.log("Tworzenie tabeli 'user_sessions'...");
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`warehouse_categories\` (
+      CREATE TABLE IF NOT EXISTS \`user_sessions\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`name\` VARCHAR(255) NOT NULL,
+        \`user_id\` INT NOT NULL,
+        \`session_token\` VARCHAR(255) NOT NULL UNIQUE,
+        \`user_agent\` TEXT NULL,
+        \`ip_address\` VARCHAR(50) NULL,
+        \`expires_at\` TIMESTAMP NOT NULL,
+        \`is_valid\` TINYINT(1) NOT NULL DEFAULT 1,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
-    console.log("[✓] Tabela 'warehouse_categories' gotowa.");
+    console.log("[✓] Tabela 'user_sessions' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'warehouse_categories':", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'user_sessions':", e.message);
   }
 
+  // 5. Tworzenie tabeli idempotency_keys
   try {
-    console.log("Tworzenie tabeli 'warehouse_products'...");
+    console.log("Tworzenie tabeli 'idempotency_keys'...");
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`warehouse_products\` (
+      CREATE TABLE IF NOT EXISTS \`idempotency_keys\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`name\` VARCHAR(255) NOT NULL,
-        \`category_id\` INT NOT NULL,
-        \`supplier\` VARCHAR(255) NULL,
-        \`unit\` VARCHAR(50) NOT NULL DEFAULT 'szt.',
-        \`min_stock\` DOUBLE NOT NULL DEFAULT 0,
-        \`max_stock\` DOUBLE NOT NULL DEFAULT 0,
-        \`sku\` VARCHAR(100) NULL,
-        \`location\` VARCHAR(255) NULL,
-        \`has_expiry\` BOOLEAN NOT NULL DEFAULT FALSE,
-        \`auto_spot_check\` BOOLEAN NOT NULL DEFAULT FALSE,
-        \`status\` VARCHAR(50) NOT NULL DEFAULT 'active',
-        \`remarks\` TEXT NULL,
+        \`user_id\` INT NOT NULL,
+        \`operation\` VARCHAR(100) NOT NULL,
+        \`idempotency_key\` VARCHAR(255) NOT NULL,
+        \`status\` ENUM('pending', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+        \`result\` TEXT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`unq_op_key\` (\`operation\`, \`idempotency_key\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'idempotency_keys' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'idempotency_keys':", e.message);
+  }
+
+  // 6. Tworzenie tabeli outbox_events
+  try {
+    console.log("Tworzenie tabeli 'outbox_events'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`outbox_events\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`event_type\` VARCHAR(100) NOT NULL,
+        \`payload\` TEXT NOT NULL,
+        \`status\` ENUM('pending', 'processing', 'delivered', 'failed') NOT NULL DEFAULT 'pending',
+        \`retry_count\` INT NOT NULL DEFAULT 0,
+        \`error_details\` TEXT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`processed_at\` TIMESTAMP NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'outbox_events' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'outbox_events':", e.message);
+  }
+
+  // 7. Tworzenie tabeli operational_day_closing
+  try {
+    console.log("Tworzenie tabeli 'operational_day_closing'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`operational_day_closing\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`date\` DATE NOT NULL,
+        \`venue_id\` INT NOT NULL,
+        \`status\` ENUM('closed', 'closed_with_exceptions') NOT NULL DEFAULT 'closed',
+        \`snapshot\` TEXT NOT NULL,
+        \`closed_by\` INT NOT NULL,
+        \`closed_by_name\` VARCHAR(255) NOT NULL,
+        \`reason_code\` VARCHAR(100) NULL,
+        \`reason_text\` TEXT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
-    console.log("[✓] Tabela 'warehouse_products' gotowa.");
+    console.log("[✓] Tabela 'operational_day_closing' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'warehouse_products':", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'operational_day_closing':", e.message);
   }
 
+  // 8. Tworzenie tabeli configuration_versions
   try {
-    console.log("Tworzenie tabeli 'warehouse_batches'...");
+    console.log("Tworzenie tabeli 'configuration_versions'...");
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`warehouse_batches\` (
+      CREATE TABLE IF NOT EXISTS \`configuration_versions\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`product_id\` INT NOT NULL,
-        \`batch_number\` VARCHAR(100) NULL,
-        \`expiry_date\` DATE NULL,
-        \`quantity\` DOUBLE NOT NULL DEFAULT 0,
+        \`config_key\` VARCHAR(100) NOT NULL,
+        \`config_value\` TEXT NOT NULL,
+        \`version\` INT NOT NULL DEFAULT 1,
+        \`valid_from\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`valid_to\` TIMESTAMP NULL,
+        \`updated_by\` INT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
-    console.log("[✓] Tabela 'warehouse_batches' gotowa.");
+    console.log("[✓] Tabela 'configuration_versions' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'warehouse_batches':", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'configuration_versions':", e.message);
   }
 
+  // 9. Tworzenie tabeli alerts
   try {
-    console.log("Tworzenie tabeli 'warehouse_history'...");
+    console.log("Tworzenie tabeli 'alerts'...");
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`warehouse_history\` (
+      CREATE TABLE IF NOT EXISTS \`alerts\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`rule_code\` VARCHAR(100) NOT NULL,
+        \`severity\` ENUM('info', 'low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'medium',
+        \`confidence\` DOUBLE NOT NULL DEFAULT 1.0,
+        \`source\` VARCHAR(100) NOT NULL DEFAULT 'anomaly_engine',
+        \`title\` VARCHAR(255) NOT NULL,
+        \`message\` TEXT NOT NULL,
+        \`status\` ENUM('open', 'acknowledged', 'resolved', 'dismissed') NOT NULL DEFAULT 'open',
+        \`entity_type\` VARCHAR(100) NULL,
+        \`entity_id\` INT NULL,
+        \`venue_id\` INT NULL,
+        \`employee_id\` INT NULL,
+        \`shift_id\` INT NULL,
+        \`acknowledged_by\` INT NULL,
+        \`acknowledged_at\` TIMESTAMP NULL,
+        \`resolved_by\` INT NULL,
+        \`resolved_at\` TIMESTAMP NULL,
+        \`reason_code\` VARCHAR(100) NULL,
+        \`reason_text\` TEXT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'alerts' gotowa.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'alerts':", e.message);
+  }
+
+  // 10. Tworzenie tabeli stock_movements
+  try {
+    console.log("Tworzenie tabeli 'stock_movements'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`stock_movements\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
         \`product_id\` INT NOT NULL,
         \`batch_id\` INT NULL,
-        \`user_id\` INT NOT NULL,
-        \`type\` VARCHAR(50) NOT NULL,
-        \`quantity\` DOUBLE NOT NULL,
-        \`source\` VARCHAR(255) NULL,
-        \`remarks\` TEXT NULL,
-        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `));
-    console.log("[✓] Tabela 'warehouse_history' gotowa.");
-  } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'warehouse_history':", e.message);
-  }
-
-  try {
-    console.log("Tworzenie tabeli 'warehouse_inventories'...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`warehouse_inventories\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`user_id\` INT NOT NULL,
-        \`category_id\` INT NULL,
-        \`type\` VARCHAR(50) NOT NULL DEFAULT 'full',
-        \`status\` VARCHAR(50) NOT NULL DEFAULT 'draft',
-        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `));
-    console.log("[✓] Tabela 'warehouse_inventories' gotowa.");
-  } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'warehouse_inventories':", e.message);
-  }
-
-  try {
-    console.log("Tworzenie tabeli 'warehouse_inventory_items'...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`warehouse_inventory_items\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`inventory_id\` INT NOT NULL,
-        \`product_id\` INT NOT NULL,
-        \`system_stock\` DOUBLE NOT NULL,
-        \`actual_stock\` DOUBLE NULL,
-        \`difference\` DOUBLE NULL,
-        \`remarks\` TEXT NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `));
-    console.log("[✓] Tabela 'warehouse_inventory_items' gotowa.");
-  } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'warehouse_inventory_items':", e.message);
-  }
-
-  // 4.7. Tworzenie tabeli venues
-  try {
-    console.log("Tworzenie tabeli 'venues'...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`venues\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`name\` VARCHAR(255) NOT NULL UNIQUE,
-        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `));
-    console.log("[✓] Tabela 'venues' gotowa.");
-  } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'venues':", e.message);
-  }
-
-  // 4.8. Checklisty otwarcia i zamknięcia zmiany
-  try {
-    console.log("Tworzenie tabeli 'shift_checklists'...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`shift_checklists\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`date\` DATE NOT NULL,
-        \`type\` ENUM('opening', 'closing') NOT NULL,
         \`venue_id\` INT NOT NULL,
+        \`user_id\` INT NOT NULL,
+        \`type\` ENUM('inbound_pz', 'outbound_wz', 'correction', 'transfer_out', 'transfer_in', 'inventory_adj') NOT NULL,
+        \`quantity\` DOUBLE NOT NULL,
+        \`source_document_id\` VARCHAR(100) NULL,
+        \`source_document_type\` VARCHAR(100) NULL,
+        \`effective_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`reason_code\` VARCHAR(100) NULL,
+        \`reason_text\` TEXT NULL,
         \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0,
-        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY \`shift_checklists_daily_unique\` (\`date\`, \`type\`, \`venue_id\`, \`is_demo\`)
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
-    console.log("[✓] Tabela 'shift_checklists' gotowa.");
+    console.log("[✓] Tabela 'stock_movements' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'shift_checklists':", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'stock_movements':", e.message);
   }
 
+  // 11. Tworzenie tabeli stock_transfers
   try {
-    console.log("Tworzenie tabeli 'shift_checklist_items'...");
+    console.log("Tworzenie tabeli 'stock_transfers'...");
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`shift_checklist_items\` (
+      CREATE TABLE IF NOT EXISTS \`stock_transfers\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`checklist_id\` INT NOT NULL,
-        \`item_key\` VARCHAR(100) NOT NULL,
-        \`title\` VARCHAR(500) NOT NULL,
-        \`section\` VARCHAR(100) NOT NULL,
-        \`sort_order\` INT NOT NULL,
-        \`due_minutes_before_close\` INT NULL,
-        \`status\` ENUM('pending', 'completed', 'not_applicable', 'problem') NOT NULL DEFAULT 'pending',
-        \`note\` TEXT NULL,
-        \`completed_by\` INT NULL,
-        \`completed_by_name\` VARCHAR(255) NULL,
-        \`completed_at\` TIMESTAMP NULL,
-        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY \`shift_checklist_item_unique\` (\`checklist_id\`, \`item_key\`)
+        \`transfer_number\` VARCHAR(100) NOT NULL UNIQUE,
+        \`source_venue_id\` INT NOT NULL,
+        \`target_venue_id\` INT NOT NULL,
+        \`product_id\` INT NOT NULL,
+        \`batch_id\` INT NULL,
+        \`sent_quantity\` DOUBLE NOT NULL,
+        \`received_quantity\` DOUBLE NULL,
+        \`discrepancy_quantity\` DOUBLE NOT NULL DEFAULT 0,
+        \`status\` ENUM('created', 'dispatched', 'received', 'partially_received', 'cancelled') NOT NULL DEFAULT 'created',
+        \`sent_by\` INT NOT NULL,
+        \`sent_at\` TIMESTAMP NULL,
+        \`received_by\` INT NULL,
+        \`received_at\` TIMESTAMP NULL,
+        \`reason_code\` VARCHAR(100) NULL,
+        \`reason_text\` TEXT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
-    console.log("[✓] Tabela 'shift_checklist_items' gotowa.");
+    console.log("[✓] Tabela 'stock_transfers' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'shift_checklist_items':", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'stock_transfers':", e.message);
   }
 
+  // 12. Tworzenie tabeli events
   try {
-    console.log("Dodawanie kolumn 'color_accent' i 'opening_hours_config' do tabeli 'venues'...");
-    await db.execute(sql.raw("ALTER TABLE `venues` ADD COLUMN `color_accent` VARCHAR(50) NOT NULL DEFAULT '#ffd700';"));
-    await db.execute(sql.raw("ALTER TABLE `venues` ADD COLUMN `opening_hours_config` TEXT NULL;"));
-    console.log("[✓] Kolumny w 'venues' gotowe.");
-  } catch (e: any) {
-    if (isDuplicateColumnError(e)) {
-      console.log("[i] Kolumny w 'venues' już istnieją.");
-    } else {
-      console.error("Błąd podczas dodawania kolumn do 'venues':", e.message);
-    }
-  }
-
-  try {
-    console.log("Tworzenie tabeli 'shift_checklist_templates'...");
+    console.log("Tworzenie tabeli 'events'...");
     await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`shift_checklist_templates\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY, \`type\` ENUM('opening', 'closing') NOT NULL,
-        \`item_key\` VARCHAR(100) NOT NULL, \`title\` VARCHAR(500) NOT NULL, \`section\` VARCHAR(100) NOT NULL,
-        \`sort_order\` INT NOT NULL, \`due_minutes_before_close\` INT NULL, \`venue_id\` INT NOT NULL,
-        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0, \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY \`shift_checklist_template_unique\` (\`type\`, \`item_key\`, \`venue_id\`, \`is_demo\`)
+      CREATE TABLE IF NOT EXISTS \`events\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`title\` VARCHAR(255) NOT NULL,
+        \`customer_name\` VARCHAR(255) NOT NULL,
+        \`customer_phone\` VARCHAR(50) NULL,
+        \`date\` DATE NOT NULL,
+        \`start_time\` VARCHAR(5) NOT NULL,
+        \`end_time\` VARCHAR(5) NOT NULL,
+        \`participants_count\` INT NOT NULL DEFAULT 1,
+        \`venue_id\` INT NOT NULL,
+        \`status\` ENUM('booked', 'confirmed', 'in_progress', 'completed', 'cancelled') NOT NULL DEFAULT 'booked',
+        \`total_amount\` DOUBLE NOT NULL DEFAULT 0,
+        \`deposit_paid\` DOUBLE NOT NULL DEFAULT 0,
+        \`notes\` TEXT NULL,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `));
-    console.log("[✓] Tabela 'shift_checklist_templates' gotowa.");
-  } catch (e: any) { console.error("Błąd podczas tworzenia tabeli 'shift_checklist_templates':", e.message); }
-
-  try {
-    console.log("Tworzenie tabeli 'shift_cash_reconciliations'...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`shift_cash_reconciliations\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY, \`date\` DATE NOT NULL, \`venue_id\` INT NOT NULL,
-        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0, \`opening_cash\` DOUBLE NOT NULL DEFAULT 0,
-        \`closing_cash\` DOUBLE NOT NULL DEFAULT 0, \`fiscal_report\` DOUBLE NOT NULL DEFAULT 0,
-        \`terminal_report\` DOUBLE NOT NULL DEFAULT 0, \`blik_report\` DOUBLE NOT NULL DEFAULT 0,
-        \`cash_to_bag\` DOUBLE NOT NULL DEFAULT 0, \`event_cash\` DOUBLE NOT NULL DEFAULT 0,
-        \`cash_operations\` DOUBLE NOT NULL DEFAULT 0, \`check_amount\` DOUBLE NOT NULL DEFAULT 0,
-        \`operations_description\` TEXT NULL, \`difference_description\` TEXT NULL,
-        \`completed_by\` INT NOT NULL, \`completed_by_name\` VARCHAR(255) NOT NULL,
-        \`completed_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY \`shift_cash_reconciliations_daily_unique\` (\`date\`, \`venue_id\`, \`is_demo\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `));
-    console.log("[✓] Tabela 'shift_cash_reconciliations' gotowa.");
-  } catch (e: any) { console.error("Błąd podczas tworzenia tabeli 'shift_cash_reconciliations':", e.message); }
-
-  try {
-    console.log("Tworzenie tabeli 'shift_reports'...");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS \`shift_reports\` (
-        \`id\` INT AUTO_INCREMENT PRIMARY KEY, \`date\` DATE NOT NULL, \`venue_id\` INT NOT NULL,
-        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0, \`intensity\` ENUM('calm', 'standard', 'busy') NOT NULL DEFAULT 'standard',
-        \`incidents\` TEXT NULL, \`equipment_notes\` TEXT NULL, \`stock_notes\` TEXT NULL, \`handover_notes\` TEXT NULL,
-        \`completed_by\` INT NOT NULL, \`completed_by_name\` VARCHAR(255) NOT NULL,
-        \`completed_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY \`shift_reports_daily_unique\` (\`date\`, \`venue_id\`, \`is_demo\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `));
-    console.log("[✓] Tabela 'shift_reports' gotowa.");
-  } catch (e: any) { console.error("Błąd podczas tworzenia tabeli 'shift_reports':", e.message); }
-
-  // Wstawienie domyślnego lokalu, jeśli tabela venues jest pusta
-  try {
-    const existingVenues = await db.execute(sql.raw("SELECT COUNT(*) as count FROM `venues`;"));
-    const count = (existingVenues as any)[0]?.[0]?.count || (existingVenues as any)[0]?.count || 0;
-    if (Number(count) === 0) {
-      console.log("Wstawianie domyślnego lokalu 'Kraków Rynek'...");
-      await db.execute(sql.raw("INSERT INTO `venues` (id, name) VALUES (1, 'Kraków Rynek');"));
-      console.log("[✓] Wstawiono domyślny lokal.");
-    }
+    console.log("[✓] Tabela 'events' gotowa.");
   } catch (e: any) {
-    console.error("Błąd podczas sprawdzania/wstawiania domyślnego lokalu:", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'events':", e.message);
   }
 
-  // Dodanie kolumny venue_id do powiązanych tabel
-  const tablesToAlterVenue = [
-    'users',
-    'work_schedule',
-    'shift_tasks',
-    'task_templates',
-    'warehouse_batches',
-    'warehouse_history',
-    'warehouse_inventories'
-  ];
+  // 13. Aktualizacja shift_cash_reconciliations
+  await addColumnSafely('shift_cash_reconciliations', "`status` ENUM('draft', 'submitted', 'approved', 'locked') NOT NULL DEFAULT 'draft'");
+  await addColumnSafely('shift_cash_reconciliations', '`effective_at` DATE NULL');
+  await addColumnSafely('shift_cash_reconciliations', '`corrected_at` TIMESTAMP NULL');
+  await addColumnSafely('shift_cash_reconciliations', '`original_id` INT NULL');
+  await addColumnSafely('shift_cash_reconciliations', '`reason_code` VARCHAR(100) NULL');
+  await addColumnSafely('shift_cash_reconciliations', '`reason_text` TEXT NULL');
 
-  for (const tbl of tablesToAlterVenue) {
-    try {
-      console.log(`Dodawanie kolumny 'venue_id' do tabeli '${tbl}'...`);
-      await db.execute(sql.raw(`ALTER TABLE \`${tbl}\` ADD COLUMN \`venue_id\` INT NULL;`));
-      console.log(`[✓] Pomyślnie dodano kolumnę 'venue_id' do '${tbl}'.`);
-    } catch (e: any) {
-      if (isDuplicateColumnError(e)) {
-        console.log(`[i] Kolumna 'venue_id' w '${tbl}' już istnieje.`);
-      } else {
-        console.error(`Błąd podczas dodawania kolumny 'venue_id' do '${tbl}':`, e.message);
-      }
-    }
-
-    try {
-      await db.execute(sql.raw(`UPDATE \`${tbl}\` SET \`venue_id\` = 1 WHERE \`venue_id\` IS NULL;`));
-    } catch (e: any) {
-      console.error(`Błąd podczas ustawiania domyślnego 'venue_id' dla '${tbl}':`, e.message);
-    }
-  }
-
-  // Dodanie kolumny attachment_url do warehouse_history
-  try {
-    console.log("Dodawanie kolumny 'attachment_url' do tabeli 'warehouse_history'...");
-    await db.execute(sql.raw("ALTER TABLE `warehouse_history` ADD COLUMN `attachment_url` TEXT NULL;"));
-    console.log("[✓] Pomyślnie dodano kolumnę 'attachment_url' do 'warehouse_history'.");
-  } catch (e: any) {
-    if (isDuplicateColumnError(e)) {
-      console.log("[i] Kolumna 'attachment_url' w 'warehouse_history' już istnieje.");
-    } else {
-      console.error("Błąd podczas dodawania kolumny 'attachment_url' do 'warehouse_history':", e.message);
-    }
-  }
-
-  // Dodanie kolumny is_demo do tabel magazynowych (izolacja trybu demo)
-  const warehouseTablesForDemo = [
-    'warehouse_categories',
-    'warehouse_products',
-    'warehouse_batches',
-    'warehouse_history',
-    'warehouse_inventories'
-  ];
-  for (const tbl of warehouseTablesForDemo) {
-    try {
-      console.log(`Dodawanie kolumny 'is_demo' do tabeli '${tbl}'...`);
-      await db.execute(sql.raw(`ALTER TABLE \`${tbl}\` ADD COLUMN \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0;`));
-      console.log(`[✓] Pomyślnie dodano kolumnę 'is_demo' do '${tbl}'.`);
-    } catch (e: any) {
-      if (isDuplicateColumnError(e)) {
-        console.log(`[i] Kolumna 'is_demo' w '${tbl}' już istnieje.`);
-      } else {
-        console.error(`Błąd podczas dodawania kolumny 'is_demo' do '${tbl}':`, e.message);
-      }
-    }
-  }
-
-  // 5. Inicjalizacja stawek początkowych oraz uprawnień dla istniejących użytkowników
-  try {
-    console.log("Generowanie stawek początkowych w salary_history oraz domyślnych uprawnień dla obecnych użytkowników...");
-    const allUsers = await db.select().from(users);
-    for (const u of allUsers) {
-      // A. Sprawdź stawkę historyczną
-      const existingHistory = await db
-        .select()
-        .from(salaryHistory)
-        .where(sql`user_id = ${u.id}`)
-        .limit(1);
-
-      if (existingHistory.length === 0) {
-        console.log(`-> Tworzenie wpisu historycznego dla: ${u.displayName} (Stawka: ${u.hourlyRate || 0} PLN/h)`);
-        await db.insert(salaryHistory).values({
-          userId: u.id,
-          hourlyRate: u.hourlyRate || 0,
-          validFrom: '2026-01-01',
-          validTo: null
-        });
-      }
-
-      // B. Sprawdź i nadaj domyślne uprawnienia (jeśli kolumna jest pusta)
-      if (!u.permissions) {
-        let defaultPerms = "";
-        if (u.role === 'owner') {
-          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
-        } else if (u.role === 'manager') {
-          defaultPerms = "schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory";
-        } else if (u.role === 'technik') {
-          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage";
-        } else if (u.role === 'employee') {
-          defaultPerms = "schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory";
-        }
-
-        console.log(`-> Nadawanie domyślnych uprawnień dla ${u.displayName} (${u.role}): ${defaultPerms}`);
-        await db.update(users).set({ permissions: defaultPerms }).where(sql`id = ${u.id}`);
-      }
-    }
-    console.log("[✓] Zakończono inicjalizację stawek historycznych i uprawnień.");
-  } catch (e: any) {
-    console.error("Błąd podczas generowania stawek/uprawnień początkowych:", e.message);
-  }
-
-  // 6. Usuwanie starych kont testowych z bazy produkcyjnej MariaDB
-  try {
-    console.log("Usuwanie starych kont testowych z oficjalnej bazy MariaDB...");
-    await db.execute(sql.raw("DELETE FROM `users` WHERE `is_demo` = 1 OR `email` LIKE 'demo.%' OR `display_name` LIKE '%Demo%';"));
-    console.log("[✓] Usunięto stare konta testowe z produkcyjnej bazy danych.");
-  } catch (e: any) {
-    console.error("Błąd usuwania kont demo w bazie:", e.message);
-  }
+  // 14. Aktualizacja warehouse_history i warehouse_inventories
+  await addColumnSafely('warehouse_history', "`status` ENUM('draft', 'posted', 'locked') NOT NULL DEFAULT 'posted'");
+  await addColumnSafely('warehouse_history', '`effective_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+  await addColumnSafely('warehouse_history', '`reason_code` VARCHAR(100) NULL');
+  await addColumnSafely('warehouse_history', '`reason_text` TEXT NULL');
+  await addColumnSafely('warehouse_inventories', "`status` ENUM('draft', 'submitted', 'approved', 'locked') NOT NULL DEFAULT 'draft'");
 
   console.log("Bezpieczna migracja bazy danych zakończona pomyślnie!");
   process.exit(0);
