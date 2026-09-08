@@ -1,18 +1,27 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { signIn } from 'next-auth/react';
-import { useSearchParams } from 'next/navigation';
+import { signIn, useSession } from 'next-auth/react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Flame, AlertCircle, CheckCircle2, Lock, HelpCircle, X, Calendar, Mail } from 'lucide-react';
 import { forgotPasswordAction } from '@/app/actions/authActions';
 
 export default function LoginPage() {
+  const { status } = useSession();
+  const router = useRouter();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.replace('/dashboard');
+    }
+  }, [status, router]);
 
   // Stan modala "Przypomnij hasło"
   const [forgotOpen, setForgotOpen] = useState(false);

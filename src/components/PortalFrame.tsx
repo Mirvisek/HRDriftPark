@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { ArrowLeft, Home, LogOut } from 'lucide-react';
@@ -16,15 +16,29 @@ interface PortalFrameProps {
 
 export function PortalFrame({ children, user }: PortalFrameProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const userName = user?.name || user?.email || 'Pracownik';
+
+  const handleBack = () => {
+    if (pathname === '/dashboard' || pathname === '/') {
+      // Na pulpicie głównym brak cofania do ekranu logowania
+      return;
+    }
+    router.back();
+  };
 
   return (
     <div className="min-h-screen bg-[#141414] text-[#e0e0e0] flex flex-col justify-between font-sans">
       {/* GÓRNY PASEK NAWIGACJI (HEADER BAR) */}
       <header className="bg-[#333333] border-b border-white/10 text-white px-4 md:px-8 py-3 flex items-center justify-between shadow-md shrink-0 sticky top-0 z-30">
         <button
-          onClick={() => router.back()}
-          className="text-xs font-bold uppercase tracking-wider text-[#a0a0a0] hover:text-white transition flex items-center gap-1.5 cursor-pointer py-1 px-3 rounded hover:bg-white/5"
+          onClick={handleBack}
+          disabled={pathname === '/dashboard' || pathname === '/'}
+          className={`text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 py-1 px-3 rounded ${
+            pathname === '/dashboard' || pathname === '/'
+              ? 'text-[#666666] cursor-not-allowed'
+              : 'text-[#a0a0a0] hover:text-white hover:bg-white/5 cursor-pointer'
+          }`}
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Wstecz</span>
@@ -59,8 +73,13 @@ export function PortalFrame({ children, user }: PortalFrameProps) {
         </Link>
 
         <button
-          onClick={() => router.back()}
-          className="text-xs font-bold uppercase tracking-wider text-[#a0a0a0] hover:text-white transition flex items-center gap-1.5 cursor-pointer py-1 px-3 rounded hover:bg-white/5"
+          onClick={handleBack}
+          disabled={pathname === '/dashboard' || pathname === '/'}
+          className={`text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 py-1 px-3 rounded ${
+            pathname === '/dashboard' || pathname === '/'
+              ? 'text-[#666666] cursor-not-allowed'
+              : 'text-[#a0a0a0] hover:text-white hover:bg-white/5 cursor-pointer'
+          }`}
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Wstecz</span>
