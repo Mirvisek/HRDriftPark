@@ -95,6 +95,11 @@ export function Navigation({ user }: NavigationProps) {
 
   const navLinks = [
     {
+      href: "/dashboard",
+      label: "Pulpit Kafelkowy",
+      icon: LayoutDashboard,
+    },
+    {
       href: "/today",
       label: "Dzisiaj",
       icon: Sun,
@@ -130,7 +135,7 @@ export function Navigation({ user }: NavigationProps) {
       <aside className="hidden md:flex flex-col w-64 bg-[#0a0a0a] border-r border-white/5 p-6 justify-between shrink-0 h-screen sticky top-0 z-20">
         <div className="space-y-8">
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="flex items-center gap-3 hover:opacity-90 transition">
             <div className="w-10 h-10 bg-gradient-to-tr from-brand-red to-brand-gold rounded-xl flex items-center justify-center shadow-lg shadow-brand-red/10 transform -rotate-3">
               <Flame className="w-6 h-6 text-brand-dark fill-brand-dark" />
             </div>
@@ -142,7 +147,7 @@ export function Navigation({ user }: NavigationProps) {
                 System Czasu Pracy
               </p>
             </div>
-          </div>
+          </Link>
 
           {/* Menu Links */}
           <nav className="space-y-1">
