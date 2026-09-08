@@ -198,8 +198,7 @@ export default function AvailabilityPage() {
         setStatusMsg({ type: 'success', text: `Zaktualizowano status dnia ${dateStr} na: ${status === 'accepted' ? 'Zaakceptowany' : 'Odrzucony'}` });
       }
     } else {
-      // Wpis z localStorage/Demo bez ID
-      setStatusMsg({ type: 'success', text: `Zaktualizowano status w trybie demo dla dnia ${dateStr}.` });
+      setStatusMsg({ type: 'success', text: `Zaktualizowano status lokalnie dla dnia ${dateStr}.` });
     }
   };
 
