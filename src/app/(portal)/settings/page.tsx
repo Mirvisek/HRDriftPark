@@ -202,7 +202,7 @@ export default function SettingsPage() {
         setActiveTab('tasks');
         loadData();
       } else {
-        router.push('/availability'); // Brak uprawnień do jakiejkolwiek sekcji ustawień
+        router.push('/dashboard'); // Brak uprawnień do jakiejkolwiek sekcji ustawień
       }
     }
   }, [status, session, router]);

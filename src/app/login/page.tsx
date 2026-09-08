@@ -71,7 +71,7 @@ export default function LoginPage() {
         email,
         password,
         rememberMe: rememberMe ? 'true' : 'false',
-        callbackUrl: '/availability',
+        callbackUrl: '/dashboard',
       });
     } catch (err) {
       setError('Błąd serwera logowania.');

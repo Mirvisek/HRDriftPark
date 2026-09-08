@@ -168,7 +168,7 @@ export default function WarehousePage() {
     } else if (status === 'authenticated') {
       const user = session?.user;
       if (!hasPermission(user, 'inventory:view')) {
-        router.push('/availability');
+        router.push('/dashboard');
       } else {
         loadData();
       }

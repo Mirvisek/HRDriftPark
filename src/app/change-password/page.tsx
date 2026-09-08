@@ -21,7 +21,7 @@ export default function ChangePasswordPage() {
     if (status === 'unauthenticated') {
       router.push('/login');
     } else if (status === 'authenticated' && !(session?.user as any)?.mustChangePassword) {
-      router.push('/availability');
+      router.push('/dashboard');
     }
   }, [status, session, router]);
 
