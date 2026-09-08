@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getPayrollSummary } from '@/app/actions/timesheetActions';
+import { exportPayrollToExcel } from '@/lib/excelExport';
 import { Calendar, DollarSign, User, Briefcase, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 
 export default function PayrollPage() {
@@ -108,23 +109,32 @@ export default function PayrollPage() {
           </p>
         </div>
 
-        {/* Month Navigation */}
-        <div className="flex bg-[#0a0a0a] border border-white/10 rounded-lg p-1">
+        {/* Month Navigation & Excel Export */}
+        <div className="flex items-center gap-3">
           <button
-            onClick={prevMonth}
-            className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded text-xs font-bold text-white transition cursor-pointer"
+            onClick={() => exportPayrollToExcel({ payrollList, monthName: monthNames[month], year })}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-lg transition flex items-center gap-2 shadow cursor-pointer"
           >
-            ←
+            <span>📥</span> Eksportuj Zestawienie Excel
           </button>
-          <span className="px-4 py-1 text-xs font-bold text-white flex items-center min-w-[120px] justify-center">
-            {monthNames[month]} {year}
-          </span>
-          <button
-            onClick={nextMonth}
-            className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded text-xs font-bold text-white transition cursor-pointer"
-          >
-            →
-          </button>
+
+          <div className="flex bg-[#0a0a0a] border border-white/10 rounded-lg p-1">
+            <button
+              onClick={prevMonth}
+              className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded text-xs font-bold text-white transition cursor-pointer"
+            >
+              ←
+            </button>
+            <span className="px-4 py-1 text-xs font-bold text-white flex items-center min-w-[120px] justify-center">
+              {monthNames[month]} {year}
+            </span>
+            <button
+              onClick={nextMonth}
+              className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded text-xs font-bold text-white transition cursor-pointer"
+            >
+              →
+            </button>
+          </div>
         </div>
       </div>
 
