@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { Navigation } from "@/components/Navigation";
+import { PortalFrame } from "@/components/PortalFrame";
 
 export default async function PortalLayout({
   children,
@@ -18,15 +18,9 @@ export default async function PortalLayout({
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#0f0f0f] text-[#e0e0e0] font-sans">
-      {/* Nawigacja (Desktop sidebar oraz Mobile header & drawer) */}
-      <Navigation user={session.user} />
-
-      {/* Główna treść */}
-      <main className="flex-1 bg-[#121212] p-6 md:p-10 overflow-y-auto w-full">
-        {children}
-      </main>
-    </div>
+    <PortalFrame user={session.user}>
+      {children}
+    </PortalFrame>
   );
 }
 
