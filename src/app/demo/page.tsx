@@ -15,22 +15,17 @@ import {
 } from 'lucide-react';
 import { resetDemoStoreAction } from '@/app/actions/demoActions';
 
+import { useRouter } from 'next/navigation';
+
 export default function DemoPage() {
+  const router = useRouter();
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleDemoLogin = async (email: string, roleName: string) => {
+  const handleDemoLogin = (email: string, roleName: string) => {
     setLoadingRole(roleName);
-    try {
-      await signIn('credentials', {
-        email,
-        password: 'demo123',
-        callbackUrl: '/dashboard',
-      });
-    } catch (err: any) {
-      setStatusMsg({ type: 'error', text: 'Błąd logowania w trybie demo.' });
-      setLoadingRole(null);
-    }
+    const roleKey = roleName === 'kierownik' ? 'manager' : roleName === 'technik' ? 'technik' : 'employee';
+    router.push(`/demo/dashboard?role=${roleKey}`);
   };
 
   const handleResetDemo = async () => {
