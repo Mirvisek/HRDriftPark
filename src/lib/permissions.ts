@@ -49,7 +49,12 @@ export function hasPermission(user: any, permission: PermissionKey): boolean {
   if (!user) return false;
   if (user.role === 'owner') return true;
 
-  const userPermsString = user.permissions || '';
-  const userPermsArray = userPermsString.split(',').map((p: string) => p.trim());
+  let userPermsArray: string[] = [];
+  if (Array.isArray(user.permissions)) {
+    userPermsArray = user.permissions.map((p: any) => String(p).trim());
+  } else if (typeof user.permissions === 'string') {
+    userPermsArray = user.permissions.split(',').map((p: string) => p.trim());
+  }
+
   return userPermsArray.includes(permission);
 }

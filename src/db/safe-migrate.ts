@@ -336,6 +336,61 @@ async function main() {
   await addColumnSafely('warehouse_history', '`reason_text` TEXT NULL');
   await addColumnSafely('warehouse_inventories', "`status` ENUM('draft', 'submitted', 'approved', 'locked') NOT NULL DEFAULT 'draft'");
 
+  // 15. Tworzenie tabeli user_groups i dodanie group_id do users
+  await addColumnSafely('users', '`group_id` INT NULL');
+  try {
+    console.log("Tworzenie tabeli 'user_groups'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`user_groups\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(255) NOT NULL UNIQUE,
+        \`role_key\` VARCHAR(100) NOT NULL UNIQUE,
+        \`permissions\` TEXT NOT NULL,
+        \`is_system\` TINYINT(1) NOT NULL DEFAULT 0,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'user_groups' gotowa.");
+
+    // Seed domyślnych grup systemowych jeśli nie istnieją
+    const defaultGroups = [
+      {
+        name: 'Właściciel',
+        roleKey: 'owner',
+        permissions: 'schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,settings:edit,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage',
+        isSystem: 1
+      },
+      {
+        name: 'Menedżer',
+        roleKey: 'manager',
+        permissions: 'schedule:view,schedule:edit,timesheet:view_own,timesheet:view_all,timesheet:edit_all,tasks:view,tasks:edit,payroll:view,users:manage,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory',
+        isSystem: 1
+      },
+      {
+        name: 'Technik',
+        roleKey: 'technik',
+        permissions: 'schedule:view,timesheet:view_own,tasks:view,tasks:edit,push:send,inventory:view,inventory:deliver,inventory:issue,inventory:inventory,inventory:manage',
+        isSystem: 1
+      },
+      {
+        name: 'Pracownik Toru',
+        roleKey: 'employee',
+        permissions: 'schedule:view,timesheet:view_own,tasks:view,inventory:view,inventory:inventory',
+        isSystem: 1
+      }
+    ];
+
+    for (const g of defaultGroups) {
+      await db.execute(sql.raw(`
+        INSERT IGNORE INTO \`user_groups\` (\`name\`, \`role_key\`, \`permissions\`, \`is_system\`)
+        VALUES (${sql.raw(`'${g.name}', '${g.roleKey}', '${g.permissions}', ${g.isSystem}`)})
+      `));
+    }
+    console.log("[✓] Domyślne grupy użytkowników zostały zainicjalizowane.");
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'user_groups':", e.message);
+  }
+
   console.log("Bezpieczna migracja bazy danych zakończona pomyślnie!");
   process.exit(0);
 }

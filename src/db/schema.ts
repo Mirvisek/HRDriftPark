@@ -8,6 +8,15 @@ export const venues = mysqlTable('venues', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const userGroups = mysqlTable('user_groups', {
+  id: int('id').primaryKey().autoincrement(),
+  name: varchar('name', { length: 255 }).notNull().unique(),
+  roleKey: varchar('role_key', { length: 100 }).notNull().unique(),
+  permissions: text('permissions').notNull(),
+  isSystem: boolean('is_system').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const users = mysqlTable('users', {
   id: int('id').primaryKey().autoincrement(),
   firstName: varchar('first_name', { length: 255 }).notNull(),
@@ -23,6 +32,7 @@ export const users = mysqlTable('users', {
   resetTokenExpires: timestamp('reset_token_expires'),
   hourlyRate: double('hourly_rate').notNull().default(0), // Stawka godzinowa w PLN (Double dla dziesiętnych)
   permissions: text('permissions').notNull().default(''), // Uprawnienia rozdzielane przecinkami
+  groupId: int('group_id'),
   isDemo: boolean('is_demo').notNull().default(false),
   venueId: int('venue_id'),
   createdAt: timestamp('created_at').defaultNow(),

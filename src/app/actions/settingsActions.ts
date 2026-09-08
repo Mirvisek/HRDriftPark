@@ -98,6 +98,7 @@ export async function getUsersAction() {
         hourlyRate: users.hourlyRate,
         createdAt: users.createdAt,
         permissions: users.permissions,
+        groupId: users.groupId,
         venueId: users.venueId
       })
       .from(users)
@@ -366,15 +367,22 @@ export async function updateUserAction(
     position: string;
     birthDate: string;
     permissions?: string;
+    groupId?: number;
     venueId?: number;
   }
 ) {
   const session = await checkAuth('users:manage');
-  const { firstName, lastName, displayName, email, role, position, birthDate, permissions } = userData;
+  const { firstName, lastName, displayName, email, role, position, birthDate, permissions, groupId } = userData;
 
   if (!firstName || !lastName || !displayName || !email || !role || !position || !birthDate) {
     return { success: false, error: "Wszystkie pola są wymagane." };
   }
+
+  const cleanPermissions = (permissions || '')
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .join(',');
 
   try {
     // Sprawdzenie unikalności e-maila (z wyłączeniem obecnego użytkownika)
@@ -398,7 +406,8 @@ export async function updateUserAction(
         role,
         position: position.trim(),
         birthDate: birthDate.trim(),
-        permissions: permissions || '',
+        permissions: cleanPermissions,
+        groupId: groupId || null,
         venueId: userData.venueId || null
       })
       .where(eq(users.id, userId));
