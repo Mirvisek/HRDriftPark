@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { availability } from "@/db/schema";
 import { eq, and, like } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 
 export interface AvailabilityEntry {
   id?: number;
@@ -14,34 +15,28 @@ export interface AvailabilityEntry {
   remarks?: string | null;
 }
 
-// Sprawdzenie czy edycja jest zablokowana (po 15. dniu miesiąca dla pracowników)
 export async function checkIsLocked(targetDateStr: string, userRole: string) {
   if (userRole === 'owner' || userRole === 'manager') {
     return false;
   }
   
-  // Bezpieczne parsowanie YYYY-MM-DD niezależne od strefy czasowej
   const [targetYear, targetMonth] = targetDateStr.split('-').map(Number);
   
   const now = new Date();
   const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // 1-12
+  const currentMonth = now.getMonth() + 1;
   const currentDay = now.getDate();
   
-  // Różnica w miesiącach
   const monthsDiff = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
   
-  // 1. Miesiące przeszłe oraz miesiąc bieżący są zawsze zablokowane do planowania dla pracowników
   if (monthsDiff <= 0) {
     return true;
   }
   
-  // 2. Następny miesiąc (M+1) jest edytowalny tylko do 15-go dnia bieżącego miesiąca (M)
   if (monthsDiff === 1) {
     return currentDay > 15;
   }
   
-  // 3. Dalsza przyszłość (M+2, M+3 itd.) jest zawsze otwarta do edycji
   return false;
 }
 
@@ -78,14 +73,12 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
   
   const userRole = (session.user as any).role;
   
-  // Sprawdzenie blokady
   const isLocked = await checkIsLocked(dateStr, userRole);
   if (isLocked) {
     return { success: false, error: "Edycja dyspozycyjności na ten okres została zablokowana (minął 15. dzień miesiąca)." };
   }
   
   try {
-    // Sprawdź czy już istnieje wpis na ten dzień
     const existing = await db
       .select()
       .from(availability)
@@ -120,24 +113,52 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
   }
 }
 
-// Manager/Owner akceptuje lub odrzuca dyspozycyjność
-export async function reviewAvailability(id: number, statusManager: 'accepted' | 'rejected') {
+// Manager/Owner/Admin akceptuje lub odrzuca dyspozycyjność
+export async function reviewAvailability(
+  id: number | null | undefined,
+  targetUserId: number,
+  dateStr: string,
+  statusManager: 'accepted' | 'rejected'
+) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
   
   const role = (session.user as any).role;
-  if (role !== 'owner' && role !== 'manager') {
-    return { success: false, error: "Brak uprawnień menedżerskich." };
+  if (role !== 'owner' && role !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
+    return { success: false, error: "Brak uprawnień menedżerskich do akceptacji dyspozycyjności." };
   }
   
   try {
-    await db
-      .update(availability)
-      .set({ statusManager })
-      .where(eq(availability.id, id));
+    if (id) {
+      await db
+        .update(availability)
+        .set({ statusManager, updatedAt: new Date() })
+        .where(eq(availability.id, id));
+    } else {
+      const existing = await db
+        .select()
+        .from(availability)
+        .where(and(eq(availability.userId, targetUserId), eq(availability.date, dateStr)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(availability)
+          .set({ statusManager, updatedAt: new Date() })
+          .where(eq(availability.id, existing[0].id));
+      } else {
+        await db.insert(availability).values({
+          userId: targetUserId,
+          date: dateStr,
+          status: 'available',
+          statusManager,
+          isDemo: (session.user as any).isDemo === true
+        });
+      }
+    }
     return { success: true };
   } catch (e) {
     console.error("Błąd aktualizacji statusu dyspozycyjności:", e);
-    return { success: false, error: "Błąd bazy danych." };
+    return { success: false, error: "Błąd bazy danych podczas akceptacji dyspozycyjności." };
   }
 }

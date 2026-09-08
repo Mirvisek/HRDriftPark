@@ -172,8 +172,13 @@ export default function AvailabilityPage() {
 
   // Manager akceptuje/odrzuca
   const handleManagerReview = async (dateStr: string, status: 'accepted' | 'rejected') => {
-    const entry = availabilityMap[dateStr];
-    if (!entry) return;
+    const targetUserId = selectedEmployeeId;
+    const entry = availabilityMap[dateStr] || {
+      userId: targetUserId,
+      date: dateStr,
+      status: 'available',
+      statusManager: 'pending'
+    };
 
     const updatedMap = { ...availabilityMap };
     const oldStatus = entry.statusManager;
@@ -181,24 +186,14 @@ export default function AvailabilityPage() {
     updatedMap[dateStr] = entry;
     setAvailabilityMap(updatedMap);
 
-    // Zapisz lokalnie
-    const targetUserId = selectedEmployeeId;
-    try {
-      localStorage.setItem(`availability_${targetUserId}_${year}_${month + 1}`, JSON.stringify(Object.values(updatedMap)));
-    } catch (e) {}
-
-    // Jeśli to wpis z id (baza), to zaktualizuj na serwerze
-    if (entry.id) {
-      const res = await reviewAvailability(entry.id, status);
-      if (!res.success) {
-        setStatusMsg({ type: 'error', text: 'Błąd podczas aktualizacji w bazie danych.' });
-        entry.statusManager = oldStatus;
-        setAvailabilityMap({ ...availabilityMap, [dateStr]: entry });
-      } else {
-        setStatusMsg({ type: 'success', text: `Zaktualizowano status dnia ${dateStr} na: ${status === 'accepted' ? 'Zaakceptowany' : 'Odrzucony'}` });
-      }
+    const res = await reviewAvailability(entry.id, targetUserId, dateStr, status);
+    if (!res.success) {
+      setStatusMsg({ type: 'error', text: res.error || 'Błąd podczas aktualizacji w bazie danych.' });
+      entry.statusManager = oldStatus;
+      setAvailabilityMap({ ...availabilityMap, [dateStr]: entry });
     } else {
-      setStatusMsg({ type: 'success', text: `Zaktualizowano status lokalnie dla dnia ${dateStr}.` });
+      setStatusMsg({ type: 'success', text: `Zaktualizowano status dnia ${dateStr} na: ${status === 'accepted' ? 'Zaakceptowany' : 'Odrzucony'}` });
+      fetchAvailability();
     }
   };
 
