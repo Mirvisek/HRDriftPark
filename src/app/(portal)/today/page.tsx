@@ -162,7 +162,8 @@ export default function TodayPage() {
         setMessage(res.error || 'Błąd uruchamiania zmiany.');
       }
     } catch (e: any) {
-      setMessage(e.message || 'Błąd serwera.');
+      console.error('Błąd uruchamiania zmiany:', e);
+      setMessage(e?.message || 'Błąd serwera podczas uruchamiania usługi.');
     } finally {
       setSubmittingShiftAction(false);
     }
@@ -185,7 +186,8 @@ export default function TodayPage() {
         setMessage(res.error || 'Błąd kończenia zmiany.');
       }
     } catch (e: any) {
-      setMessage(e.message || 'Błąd serwera.');
+      console.error('Błąd kończenia zmiany:', e);
+      setMessage(e?.message || 'Błąd serwera podczas kończenia usługi.');
     } finally {
       setSubmittingShiftAction(false);
     }
