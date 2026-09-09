@@ -467,3 +467,18 @@ export const events = mysqlTable('events', {
   isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+export const activeShifts = mysqlTable('active_shifts', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('user_id').notNull(),
+  date: date('date', { mode: 'string' }).notNull(),
+  startTime: varchar('start_time', { length: 5 }).notNull(),
+  startedAt: timestamp('started_at').defaultNow(),
+  shiftRole: mysqlEnum('shift_role', ['lead', 'support', 'cleaning', 'replacement']).notNull().default('lead'),
+  venueId: int('venue_id').notNull().default(1),
+  isDemo: boolean('is_demo').notNull().default(false),
+}, (table) => ({
+  userActiveIdx: index('active_shifts_user_idx').on(table.userId),
+  dateVenueIdx: index('active_shifts_date_venue_idx').on(table.date, table.venueId),
+}));
+

@@ -415,6 +415,28 @@ async function main() {
   await addIndexSafely('warehouse_history', 'warehouse_history_product_created_idx', '`product_id`, `created_at`');
   await addIndexSafely('outbox_events', 'outbox_events_status_idx', '`status`');
 
+  // 17. Tworzenie tabeli active_shifts
+  try {
+    console.log("Tworzenie tabeli 'active_shifts'...");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS \`active_shifts\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`user_id\` INT NOT NULL,
+        \`date\` DATE NOT NULL,
+        \`start_time\` VARCHAR(5) NOT NULL,
+        \`started_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`shift_role\` ENUM('lead', 'support', 'cleaning', 'replacement') NOT NULL DEFAULT 'lead',
+        \`venue_id\` INT NOT NULL DEFAULT 1,
+        \`is_demo\` TINYINT(1) NOT NULL DEFAULT 0
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `));
+    console.log("[✓] Tabela 'active_shifts' gotowa.");
+    await addIndexSafely('active_shifts', 'active_shifts_user_idx', '`user_id`');
+    await addIndexSafely('active_shifts', 'active_shifts_date_venue_idx', '`date`, `venue_id`');
+  } catch (e: any) {
+    console.error("Błąd podczas tworzenia tabeli 'active_shifts':", e.message);
+  }
+
   console.log("Bezpieczna migracja bazy danych zakończona pomyślnie!");
   process.exit(0);
 }
