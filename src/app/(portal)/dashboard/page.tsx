@@ -28,11 +28,14 @@ import { hasPermission } from '@/lib/permissions';
 import { 
   getActiveShiftAction, 
   startShiftAction, 
-  stopShiftAction, 
+  stopShiftAction 
+} from '@/app/actions/shiftServiceActions';
+import { 
+  ShiftRole, 
   SHIFT_ROLE_LABELS, 
   ActiveShiftInfo, 
-  ShiftRole 
-} from '@/app/actions/shiftServiceActions';
+  getRoleLabel 
+} from '@/lib/shiftTypes';
 
 export default function DashboardPage() {
   const { data: session } = useSession();
@@ -133,7 +136,7 @@ export default function DashboardPage() {
   };
 
   const isShiftActive = activeShiftInfo?.hasActiveShift;
-  const currentRoleLabel = activeShiftInfo?.shift ? SHIFT_ROLE_LABELS[activeShiftInfo.shift.shiftRole] : '';
+  const currentRoleLabel = activeShiftInfo?.shift ? getRoleLabel(activeShiftInfo.shift.shiftRole) : '';
 
   const tiles = [
     {

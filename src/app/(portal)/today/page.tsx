@@ -20,7 +20,8 @@ import {
   Clock,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  RotateCcw
 } from 'lucide-react';
 import { 
   CashFormValues, 
@@ -33,39 +34,21 @@ import {
   getActiveShiftAction, 
   startShiftAction, 
   stopShiftAction, 
-  ActiveShiftInfo, 
-  ShiftRole, 
-  SHIFT_ROLE_LABELS 
+  resetActiveShiftAction 
 } from '@/app/actions/shiftServiceActions';
+import { 
+  ShiftRole, 
+  SHIFT_ROLE_LABELS, 
+  ActiveShiftInfo, 
+  getRoleLabel, 
+  ROLE_DESCRIPTIONS 
+} from '@/lib/shiftTypes';
 import { hasPermission } from '@/lib/permissions';
 
 type Overview = Awaited<ReturnType<typeof getTodayOverviewAction>>['data'];
 const currency = new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' });
 const emptyCash: CashFormValues = { openingCash: 0, closingCash: 0, fiscalReport: 0, terminalReport: 0, blikReport: 0, cashToBag: 0, eventCash: 0, cashOperations: 0, operationsDescription: '', differenceDescription: '' };
 const emptyReport: ShiftReportValues = { intensity: 'standard', incidents: '', equipmentNotes: '', stockNotes: '', handoverNotes: '' };
-
-const ROLE_DESCRIPTIONS: Record<ShiftRole, { title: string; desc: string; icon: string }> = {
-  lead: {
-    title: 'Osoba prowadząca',
-    desc: 'Odpowiedzialność za otwarcie/zamknięcie, rozliczenie kasy i koordynację zmiany.',
-    icon: '👑',
-  },
-  support: {
-    title: 'Osoba wspomagająca',
-    desc: 'Wsparcie na torze, obsługa klientów, szkolenia i pomoc techniczna.',
-    icon: '🤝',
-  },
-  cleaning: {
-    title: 'Prace porządkowe',
-    desc: 'Prace czyszczące, serwisowe, porządkowanie toru i zaplecza (bez dostępu do kasy).',
-    icon: '🧹',
-  },
-  replacement: {
-    title: 'Zamiana osoby prowadzącej',
-    desc: 'Zastępstwo w roli osoby prowadzącej z pełnymi uprawnieniami rozliczeniowymi.',
-    icon: '🔄',
-  },
-};
 
 export default function TodayPage() {
   const { data: session } = useSession();
@@ -170,10 +153,11 @@ export default function TodayPage() {
     setSubmittingShiftAction(true);
     setMessage(null);
     try {
-      const res = await startShiftAction(selectedRole);
+      const roleToStart = selectedRole || 'lead';
+      const res = await startShiftAction(roleToStart);
       if (res.success) {
         await fetchShiftState();
-        setMessage(`Usługa pracy została włączona (${res.roleLabel}) o godz. ${res.startTime}!`);
+        setMessage(`Usługa pracy została włączona (${res.roleLabel || getRoleLabel(roleToStart)}) o godz. ${res.startTime || 'teraz'}!`);
       } else {
         setMessage(res.error || 'Błąd uruchamiania zmiany.');
       }
@@ -196,12 +180,31 @@ export default function TodayPage() {
       const res = await stopShiftAction();
       if (res.success) {
         await fetchShiftState();
-        setMessage(`Zmiana zakończona pomyślnie (${res.duration})! Wpis został automatycznie zarejestrowany w Karcie Godzin.`);
+        setMessage(`Zmiana zakończona pomyślnie (${res.duration || ''})! Wpis został zarejestrowany w Karcie Godzin.`);
       } else {
         setMessage(res.error || 'Błąd kończenia zmiany.');
       }
     } catch (e: any) {
       setMessage(e.message || 'Błąd serwera.');
+    } finally {
+      setSubmittingShiftAction(false);
+    }
+  };
+
+  // Obsługa awaryjnego resetu (gdy zmiana jest zablokowana lub uszkodzona)
+  const handleResetShift = async () => {
+    if (!confirm('Czy na pewno chcesz awaryjnie zresetować usługę pracy i zacząć od nowa?')) return;
+    setSubmittingShiftAction(true);
+    try {
+      const res = await resetActiveShiftAction();
+      if (res.success) {
+        await fetchShiftState();
+        setMessage('Status usługi pracy został pomyślnie zresetowany.');
+      } else {
+        setMessage(res.error || 'Błąd resetowania zmiany.');
+      }
+    } catch (e: any) {
+      setMessage(e.message || 'Błąd resetowania.');
     } finally {
       setSubmittingShiftAction(false);
     }
@@ -282,22 +285,32 @@ export default function TodayPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-black uppercase tracking-wider text-red-300">Usługa pracy: W TOKU</span>
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-red-500/20 text-red-200 border border-red-500/30">
-                  {SHIFT_ROLE_LABELS[activeShiftInfo.shift.shiftRole]}
+                  {getRoleLabel(activeShiftInfo.shift.shiftRole)}
                 </span>
               </div>
               <p className="text-xs text-red-200/70 mt-1">
-                Start: <strong className="text-white">{activeShiftInfo.shift.startTime}</strong> • Czas na żywo: <span className="font-mono font-bold text-white tracking-wider">{liveDuration || '00:00:00'}</span>
+                Start: <strong className="text-white">{activeShiftInfo.shift.startTime || '—'}</strong> • Czas na żywo: <span className="font-mono font-bold text-white tracking-wider">{liveDuration || '00:00:00'}</span>
               </p>
             </div>
           </div>
-          <button
-            onClick={handleStopShift}
-            disabled={submittingShiftAction}
-            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-red-400/50 shadow-md transition disabled:opacity-50"
-          >
-            <Square className="w-3.5 h-3.5 fill-white" />
-            {submittingShiftAction ? 'Kończenie…' : 'Zakończ pracę'}
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={handleStopShift}
+              disabled={submittingShiftAction}
+              className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-red-400/50 shadow-md transition disabled:opacity-50 cursor-pointer"
+            >
+              <Square className="w-3.5 h-3.5 fill-white" />
+              {submittingShiftAction ? 'Kończenie…' : 'Zakończ pracę'}
+            </button>
+            <button
+              onClick={handleResetShift}
+              disabled={submittingShiftAction}
+              className="p-2.5 rounded-xl bg-black/40 hover:bg-black/60 text-white/60 hover:text-white border border-white/10 transition cursor-pointer"
+              title="Awaryjny reset zablokowanej zmiany"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -310,7 +323,7 @@ export default function TodayPage() {
           </div>
           <button
             onClick={() => setManagerBypass(false)}
-            className="text-[11px] font-bold text-white hover:text-amber-200 flex items-center gap-1 underline underline-offset-2 shrink-0"
+            className="text-[11px] font-bold text-white hover:text-amber-200 flex items-center gap-1 underline underline-offset-2 shrink-0 cursor-pointer"
           >
             <EyeOff className="w-3.5 h-3.5" /> Wróć do bramki wyboru
           </button>
@@ -338,14 +351,14 @@ export default function TodayPage() {
             {(['lead', 'support', 'cleaning', 'replacement'] as ShiftRole[]).map((role) => {
               const isSelected = selectedRole === role;
               const isSuggested = activeShiftInfo?.suggestedRole === role;
-              const meta = ROLE_DESCRIPTIONS[role];
+              const meta = ROLE_DESCRIPTIONS[role] || ROLE_DESCRIPTIONS.lead;
 
               return (
                 <button
                   key={role}
                   type="button"
                   onClick={() => setSelectedRole(role)}
-                  className={`p-4 rounded-xl border text-left transition flex flex-col justify-between relative ${
+                  className={`p-4 rounded-xl border text-left transition flex flex-col justify-between relative cursor-pointer ${
                     isSelected
                       ? 'bg-brand-gold/15 border-brand-gold text-white shadow-lg shadow-brand-gold/10 ring-1 ring-brand-gold'
                       : 'bg-[#111] hover:bg-[#161616] border-white/10 text-[#bbb]'
@@ -382,10 +395,10 @@ export default function TodayPage() {
             <button
               onClick={handleStartShift}
               disabled={submittingShiftAction}
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-brand-gold to-yellow-500 hover:from-yellow-400 hover:to-brand-gold text-[#121212] font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-brand-gold/20 transition disabled:opacity-50"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-brand-gold to-yellow-500 hover:from-yellow-400 hover:to-brand-gold text-[#121212] font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-brand-gold/20 transition disabled:opacity-50 cursor-pointer"
             >
               <Play className="w-4 h-4 fill-[#121212]" />
-              {submittingShiftAction ? 'Uruchamianie usługi…' : `Rozpocznij pracę jako: ${SHIFT_ROLE_LABELS[selectedRole]}`}
+              {submittingShiftAction ? 'Uruchamianie usługi…' : `Rozpocznij pracę jako: ${getRoleLabel(selectedRole)}`}
             </button>
           </div>
 
@@ -394,7 +407,7 @@ export default function TodayPage() {
               <button
                 type="button"
                 onClick={() => setManagerBypass(true)}
-                className="text-xs text-[#888] hover:text-brand-gold flex items-center gap-1.5 transition mx-auto"
+                className="text-xs text-[#888] hover:text-brand-gold flex items-center gap-1.5 transition mx-auto cursor-pointer"
               >
                 <Eye className="w-3.5 h-3.5" /> Podgląd panelu w trybie menedżera (bez rejestracji godzin)
               </button>
@@ -496,7 +509,7 @@ export default function TodayPage() {
                 <div className={`p-3 rounded-lg text-sm font-bold ${calculated === 0 ? 'bg-green-500/10 text-green-400' : 'bg-brand-red/10 text-brand-red'}`}>
                   Sprawdzenie danych: {currency.format(calculated)}
                 </div>
-                <button disabled={saving === 'cash'} className="w-full py-2.5 rounded-lg bg-brand-gold text-[#151515] text-xs font-extrabold flex justify-center gap-2">
+                <button disabled={saving === 'cash'} className="w-full py-2.5 rounded-lg bg-brand-gold text-[#151515] text-xs font-extrabold flex justify-center gap-2 cursor-pointer">
                   <Save className="w-4 h-4" />
                   {saving === 'cash' ? 'Zapisywanie…' : 'Zapisz rozliczenie'}
                 </button>
@@ -536,7 +549,7 @@ export default function TodayPage() {
                   />
                 </label>
               ))}
-              <button disabled={saving === 'report'} className="w-full py-2.5 rounded-lg bg-brand-gold text-[#151515] text-xs font-extrabold flex justify-center gap-2">
+              <button disabled={saving === 'report'} className="w-full py-2.5 rounded-lg bg-brand-gold text-[#151515] text-xs font-extrabold flex justify-center gap-2 cursor-pointer">
                 <CheckCircle2 className="w-4 h-4" />
                 {saving === 'report' ? 'Zapisywanie…' : 'Zapisz raport zmiany'}
               </button>
