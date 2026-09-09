@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, boolean, timestamp, date, mysqlEnum, double, uniqueIndex } from 'drizzle-orm/mysql-core';
+import { mysqlTable, int, varchar, text, boolean, timestamp, date, mysqlEnum, double, uniqueIndex, index } from 'drizzle-orm/mysql-core';
 
 export const venues = mysqlTable('venues', {
   id: int('id').primaryKey().autoincrement(),
@@ -76,7 +76,9 @@ export const workSchedule = mysqlTable('work_schedule', {
   venueId: int('venue_id'),
   version: int('version').notNull().default(1), // Optymistyczne blokowanie
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
-});
+}, (table) => ({
+  dateVenueIdx: index('work_schedule_date_venue_idx').on(table.date, table.venueId),
+}));
 
 export const timesheets = mysqlTable('timesheets', {
   id: int('id').primaryKey().autoincrement(),
@@ -96,7 +98,10 @@ export const timesheets = mysqlTable('timesheets', {
   isDemo: boolean('is_demo').notNull().default(false),
   version: int('version').notNull().default(1), // Optymistyczne blokowanie
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  userDateIdx: index('timesheets_user_date_idx').on(table.userId, table.date),
+  dateIdx: index('timesheets_date_idx').on(table.date),
+}));
 
 export const notifications = mysqlTable('notifications', {
   id: int('id').primaryKey().autoincrement(),
@@ -303,7 +308,9 @@ export const warehouseHistory = mysqlTable('warehouse_history', {
   reasonText: text('reason_text'),
   isDemo: boolean('is_demo').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  productCreatedIdx: index('warehouse_history_product_created_idx').on(table.productId, table.createdAt),
+}));
 
 export const warehouseInventories = mysqlTable('warehouse_inventories', {
   id: int('id').primaryKey().autoincrement(),
@@ -352,7 +359,9 @@ export const outboxEvents = mysqlTable('outbox_events', {
   errorDetails: text('error_details'),
   createdAt: timestamp('created_at').defaultNow(),
   processedAt: timestamp('processed_at'),
-});
+}, (table) => ({
+  statusIdx: index('outbox_events_status_idx').on(table.status),
+}));
 
 export const operationalDayClosing = mysqlTable('operational_day_closing', {
   id: int('id').primaryKey().autoincrement(),

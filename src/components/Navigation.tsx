@@ -40,6 +40,8 @@ export function Navigation({ user }: NavigationProps) {
   const pathname = usePathname();
   const isWorkTimeActive = pathname === "/availability" || pathname === "/schedule" || pathname === "/timesheet" || pathname === "/worktime";
   const [workTimeOpen, setWorkTimeOpen] = useState(false);
+  const [notificationsList, setNotificationsList] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     if (isWorkTimeActive) {
@@ -67,9 +69,6 @@ export function Navigation({ user }: NavigationProps) {
       document.body.style.overflow = "";
     };
   }, [isOpen]);
-
-  const [notificationsList, setNotificationsList] = useState<any[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
 
   const unreadCount = notificationsList.filter(n => !n.isRead).length;
 

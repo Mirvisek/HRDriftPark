@@ -2,13 +2,37 @@
 
 import { db } from "@/db";
 import { timesheets, users, salaryHistory } from "@/db/schema";
-import { eq, and, like, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import { logAuditEvent } from "./userActions";
 import { hasPermission } from "@/lib/permissions";
 import { canTransition } from "@/lib/workflow";
 import { executeIdempotentAction, runTransaction } from "@/lib/transaction";
 import { AnomalyEngine } from "@/services/anomalyEngine";
+import { calculateShiftDuration, findApplicableHourlyRate } from "@/lib/payrollCalculator";
+import { z } from "zod";
+
+function getMonthDateRange(year: number, month: number) {
+  const monthStr = String(month).padStart(2, '0');
+  const lastDay = new Date(year, month, 0).getDate();
+  const startDate = `${year}-${monthStr}-01`;
+  const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+  return { startDate, endDate };
+}
+
+const saveTimesheetSchema = z.object({
+  id: z.number().int().positive().optional(),
+  userId: z.number().int().positive("Niepoprawny identyfikator pracownika."),
+  dateStr: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format daty musi być YYYY-MM-DD."),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Godzina rozpoczęcia musi mieć format HH:MM."),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Godzina zakończenia musi mieć format HH:MM."),
+  remarks: z.string().nullable().optional(),
+  clientVersion: z.number().int().optional(),
+  idempotencyKey: z.string().optional(),
+  reasonCode: z.string().optional(),
+  reasonText: z.string().optional(),
+});
+
 
 export interface TimesheetEntry {
   id?: number;
@@ -42,8 +66,7 @@ export async function checkTimesheetLocked(year: number, month: number, user: an
 }
 
 export async function getTimesheets(userId: number, year: number, month: number) {
-  const monthStr = String(month).padStart(2, '0');
-  const pattern = `${year}-${monthStr}-%`;
+  const { startDate, endDate } = getMonthDateRange(year, month);
 
   try {
     const session = await auth();
@@ -55,7 +78,8 @@ export async function getTimesheets(userId: number, year: number, month: number)
       .where(
         and(
           eq(timesheets.userId, userId),
-          like(timesheets.date, pattern),
+          gte(timesheets.date, startDate),
+          lte(timesheets.date, endDate),
           eq(timesheets.isDemo, userIsDemo)
         )
       );
@@ -75,18 +99,10 @@ export async function getTimesheets(userId: number, year: number, month: number)
 
     let estimatedPayout = 0;
     results.forEach(t => {
-      const [sh, sm] = t.startTime.split(':').map(Number);
-      const [eh, em] = t.endTime.split(':').map(Number);
-      let diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
-      if (diffSec <= 0) diffSec += 86400; // Przejście przez północ
-
-      const entryHours = diffSec / 3600;
+      const { durationHours } = calculateShiftDuration(t.startTime, t.endTime);
       const effectiveDate = t.effectiveAt || t.date;
-      const matchedRate = userHistory.find(h => {
-        return h.validFrom <= effectiveDate && (!h.validTo || h.validTo >= effectiveDate);
-      });
-      const rate = matchedRate ? matchedRate.hourlyRate : fallbackRate;
-      estimatedPayout += entryHours * rate;
+      const rate = findApplicableHourlyRate(effectiveDate, userHistory, fallbackRate);
+      estimatedPayout += durationHours * rate;
     });
 
     return { 
@@ -112,6 +128,24 @@ export async function saveTimesheet(
   reasonCode?: string,
   reasonText?: string
 ) {
+  const validation = saveTimesheetSchema.safeParse({
+    id,
+    userId,
+    dateStr,
+    startTime,
+    endTime,
+    remarks,
+    clientVersion,
+    idempotencyKey,
+    reasonCode,
+    reasonText,
+  });
+
+  if (!validation.success) {
+    const firstError = validation.error.issues[0]?.message || "Błąd walidacji danych.";
+    return { success: false, error: firstError };
+  }
+
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji." };
 
@@ -246,8 +280,7 @@ export async function getAllTimesheets(year: number, month: number) {
     return { success: false, data: [], error: "Brak uprawnień." };
   }
 
-  const monthStr = String(month).padStart(2, '0');
-  const pattern = `${year}-${monthStr}-%`;
+  const { startDate, endDate } = getMonthDateRange(year, month);
 
   try {
     const results = await db
@@ -267,7 +300,7 @@ export async function getAllTimesheets(year: number, month: number) {
       })
       .from(timesheets)
       .innerJoin(users, eq(timesheets.userId, users.id))
-      .where(like(timesheets.date, pattern));
+      .where(and(gte(timesheets.date, startDate), lte(timesheets.date, endDate)));
 
     return { success: true, data: results as TimesheetEntry[] };
   } catch (e) {
@@ -286,8 +319,7 @@ export async function getPayrollSummary(year: number, month: number) {
 
   try {
     const userIsDemo = (session.user as any).isDemo === true;
-    const monthStr = String(month).padStart(2, '0');
-    const pattern = `${year}-${monthStr}-%`;
+    const { startDate, endDate } = getMonthDateRange(year, month);
 
     const allUsers = await db
       .select({
@@ -303,7 +335,13 @@ export async function getPayrollSummary(year: number, month: number) {
     const allTimesheets = await db
       .select()
       .from(timesheets)
-      .where(and(like(timesheets.date, pattern), eq(timesheets.isDemo, userIsDemo)));
+      .where(
+        and(
+          gte(timesheets.date, startDate),
+          lte(timesheets.date, endDate),
+          eq(timesheets.isDemo, userIsDemo)
+        )
+      );
 
     const allSalaryHistory = await db.select().from(salaryHistory);
 
@@ -315,21 +353,12 @@ export async function getPayrollSummary(year: number, month: number) {
       let totalPayout = 0;
 
       userSheets.forEach(t => {
-        const [sh, sm] = t.startTime.split(':').map(Number);
-        const [eh, em] = t.endTime.split(':').map(Number);
-        let diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
-        if (diffSec <= 0) diffSec += 86400;
-
-        totalSeconds += diffSec;
-        const entryHours = diffSec / 3600;
+        const { totalSeconds: shiftSec, durationHours } = calculateShiftDuration(t.startTime, t.endTime);
+        totalSeconds += shiftSec;
 
         const effectiveDate = t.effectiveAt || t.date;
-        const matchedRate = userHistory.find(h => {
-          return h.validFrom <= effectiveDate && (!h.validTo || h.validTo >= effectiveDate);
-        });
-
-        const rate = matchedRate ? matchedRate.hourlyRate : user.hourlyRate;
-        totalPayout += entryHours * rate;
+        const rate = findApplicableHourlyRate(effectiveDate, userHistory, user.hourlyRate);
+        totalPayout += durationHours * rate;
       });
 
       const totalHours = Math.round((totalSeconds / 3600) * 100) / 100;

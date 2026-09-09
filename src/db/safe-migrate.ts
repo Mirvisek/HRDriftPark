@@ -45,6 +45,22 @@ async function main() {
     }
   };
 
+  // Helper do bezpiecznego dodawania indeksów
+  const addIndexSafely = async (tableName: string, indexName: string, columns: string) => {
+    try {
+      await db.execute(sql.raw(`ALTER TABLE \`${tableName}\` ADD INDEX \`${indexName}\` (${columns});`));
+      console.log(`[✓] Dodano indeks '${indexName}' do '${tableName}'`);
+    } catch (e: any) {
+      const code = e.code || e.originalError?.code;
+      const msg = String(e.message || '');
+      if (code === 'ER_DUP_KEYNAME' || msg.includes('Duplicate key name')) {
+        // Ignoruj istniejący indeks
+      } else {
+        console.error(`Błąd podczas dodawania indeksu '${indexName}' do '${tableName}':`, e.cause?.message || e.originalError?.message || e.message);
+      }
+    }
+  };
+
   // 1. Wersjonowanie i statusy w tabelach bazowych
   await addColumnSafely('work_schedule', '`version` INT NOT NULL DEFAULT 1');
   await addColumnSafely('work_schedule', "`status` ENUM('draft', 'published', 'locked') NOT NULL DEFAULT 'draft'");
@@ -390,6 +406,14 @@ async function main() {
   } catch (e: any) {
     console.error("Błąd podczas tworzenia tabeli 'user_groups':", e.message);
   }
+
+  // 16. Indeksy wydajnościowe
+  console.log("Dodawanie indeksów wydajnościowych...");
+  await addIndexSafely('timesheets', 'timesheets_user_date_idx', '`user_id`, `date`');
+  await addIndexSafely('timesheets', 'timesheets_date_idx', '`date`');
+  await addIndexSafely('work_schedule', 'work_schedule_date_venue_idx', '`date`, `venue_id`');
+  await addIndexSafely('warehouse_history', 'warehouse_history_product_created_idx', '`product_id`, `created_at`');
+  await addIndexSafely('outbox_events', 'outbox_events_status_idx', '`status`');
 
   console.log("Bezpieczna migracja bazy danych zakończona pomyślnie!");
   process.exit(0);

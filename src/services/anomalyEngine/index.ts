@@ -1,7 +1,20 @@
 import { db } from '@/db';
-import { alerts, timesheets, workSchedule } from '@/db/schema';
+import { alerts, timesheets, workSchedule, settings } from '@/db/schema';
 import { recordOutboxEvent } from '@/lib/outbox';
 import { eq, and, sql } from 'drizzle-orm';
+
+async function getSettingNumber(key: string, defaultValue: number): Promise<number> {
+  try {
+    const res = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, key)).limit(1);
+    if (res.length > 0 && res[0].value) {
+      const parsed = parseFloat(res[0].value);
+      if (!isNaN(parsed)) return parsed;
+    }
+  } catch {
+    // Fallback do wartości domyślnej
+  }
+  return defaultValue;
+}
 
 export interface AnomalyReport {
   ruleCode: string;
@@ -35,6 +48,11 @@ export class AnomalyEngine {
 
     const reports: AnomalyReport[] = [];
 
+    // Pobierz dynamiczne progi reguł z konfiguracji z bezpiecznymi wartościami domyślnymi
+    const longShiftThreshold = await getSettingNumber('anomaly_long_shift_hours', 8);
+    const missingCheckoutThreshold = await getSettingNumber('anomaly_missing_checkout_hours', 14);
+    const scheduleDeviationThreshold = await getSettingNumber('anomaly_schedule_deviation_minutes', 15);
+
     // Helper do parsowania minut
     const timeToMinutes = (timeStr: string) => {
       const [h, m] = timeStr.split(':').map(Number);
@@ -46,28 +64,28 @@ export class AnomalyEngine {
     let durationHours = (endMins - startMins) / 60;
     if (durationHours < 0) durationHours += 24; // Przejście przez północ
 
-    // 1. LongShiftRule: Zmiana > 8h bez zarejestrowanej przerwy
-    if (durationHours > 8) {
+    // 1. LongShiftRule: Zmiana > longShiftThreshold bez zarejestrowanej przerwy
+    if (durationHours > longShiftThreshold) {
       reports.push({
         ruleCode: 'LONG_SHIFT_NO_BREAK',
         severity: 'medium',
         confidence: 0.95,
         title: '⚠️ Wymaga weryfikacji — długa zmiana',
-        message: `Pracownik przepracował ${durationHours.toFixed(1)}h. Wymagana weryfikacja czy zarejestrowano przerwę w pracy.`,
+        message: `Pracownik przepracował ${durationHours.toFixed(1)}h (próg: ${longShiftThreshold}h). Wymagana weryfikacja czy zarejestrowano przerwę w pracy.`,
         entityType: 'timesheet',
         entityId: ts.id,
         employeeId: ts.userId
       });
     }
 
-    // 2. MissingCheckoutRule: Zmiana > 14h
-    if (durationHours > 14) {
+    // 2. MissingCheckoutRule: Zmiana > missingCheckoutThreshold
+    if (durationHours > missingCheckoutThreshold) {
       reports.push({
         ruleCode: 'MISSING_CHECKOUT',
         severity: 'critical',
         confidence: 0.99,
         title: '🔴 Brak Checkoutu / Przekroczenie Czasu',
-        message: `Wpis RCP wykazuje zmianę trwającą ${durationHours.toFixed(1)}h. Prawdopodobny brak zamknięcia zmiany przez pracownika.`,
+        message: `Wpis RCP wykazuje zmianę trwającą ${durationHours.toFixed(1)}h (próg: ${missingCheckoutThreshold}h). Prawdopodobny brak zamknięcia zmiany przez pracownika.`,
         entityType: 'timesheet',
         entityId: ts.id,
         employeeId: ts.userId
@@ -89,13 +107,13 @@ export class AnomalyEngine {
         const startDiff = Math.abs(startMins - planStartMins);
         const endDiff = Math.abs(endMins - planEndMins);
 
-        if (startDiff > 15 || endDiff > 15) {
+        if (startDiff > scheduleDeviationThreshold || endDiff > scheduleDeviationThreshold) {
           reports.push({
             ruleCode: 'PLAN_REALITY_DEVIATION',
             severity: 'low',
             confidence: 0.9,
             title: '🟠 Rozbieżność z Grafikiem',
-            message: `Godziny RCP (${ts.startTime}-${ts.endTime}) różnią się od grafiku planowanego (${sched.openTime}-${sched.closeTime}) o ponad 15 minut.`,
+            message: `Godziny RCP (${ts.startTime}-${ts.endTime}) różnią się od grafiku planowanego (${sched.openTime}-${sched.closeTime}) o ponad ${scheduleDeviationThreshold} minut.`,
             entityType: 'timesheet',
             entityId: ts.id,
             venueId: sched.venueId || undefined,
@@ -165,7 +183,8 @@ export class AnomalyEngine {
     const diffMs = currDate.getTime() - prevDate.getTime();
     const restHours = diffMs / (1000 * 60 * 60);
 
-    if (restHours < 11) {
+    const minRestThreshold = await getSettingNumber('anomaly_min_rest_hours', 11);
+    if (restHours < minRestThreshold) {
       return { hasViolation: true, restHours };
     }
 

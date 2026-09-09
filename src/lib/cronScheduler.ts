@@ -208,5 +208,15 @@ export function initCronJobs() {
       }
     } catch (error) { console.error('[CRON] Błąd przypomnienia o zamknięciu zmiany:', error); }
   });
+
+  // 5. Worker Outbox: Co 1 minutę przetwarza oczekujące zdarzenia w tle
+  cron.schedule('* * * * *', async () => {
+    try {
+      const { processPendingOutboxEvents } = await import('@/lib/outbox');
+      await processPendingOutboxEvents(50);
+    } catch (e) {
+      console.error('[CRON] Błąd przetwarzania kolejki Outbox:', e);
+    }
+  });
 }
 export default initCronJobs;

@@ -1,6 +1,7 @@
 import { db } from '@/db';
-import { outboxEvents } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { outboxEvents, notifications, users } from '@/db/schema';
+import { eq, or } from 'drizzle-orm';
+import { sendPushNotification } from '@/lib/webPush';
 
 export interface DomainOutboxEvent {
   eventType: string;
@@ -52,6 +53,48 @@ export async function processPendingOutboxEvents(batchSize: number = 10): Promis
       const payload = JSON.parse(event.payload);
 
       console.log(`[Outbox Worker] Processing event #${event.id} (${event.eventType}):`, payload);
+
+      // Routing zdarzeń biznesowych
+      switch (event.eventType) {
+        case 'ALERT_CREATED': {
+          const { title, severity, employeeId } = payload;
+          const alertMsg = `[Alert ${String(severity).toUpperCase()}] ${title}`;
+
+          // 1. Powiadomienie pracownika (jeśli dotyczy konkretnego pracownika)
+          if (employeeId) {
+            await db.insert(notifications).values({
+              userId: Number(employeeId),
+              message: alertMsg,
+              isRead: false
+            });
+            await sendPushNotification(Number(employeeId), `⚠️ Alert systemu: ${title}`, alertMsg, '/alerts');
+          }
+
+          // 2. Jeśli alert jest oznaczony jako high lub critical, powiadom kadrę zarządzającą
+          if (severity === 'high' || severity === 'critical') {
+            const managers = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(or(eq(users.role, 'owner'), eq(users.role, 'manager')));
+
+            for (const m of managers) {
+              if (m.id !== employeeId) {
+                await db.insert(notifications).values({
+                  userId: m.id,
+                  message: `[Krytyczny alert kadrowy] ${title}`,
+                  isRead: false
+                });
+                await sendPushNotification(m.id, `🚨 Krytyczny alert kadrowy`, title, '/alerts');
+              }
+            }
+          }
+          break;
+        }
+
+        default:
+          console.log(`[Outbox Worker] Brak dedykowanego handlera dla typu: ${event.eventType}. Zdarzenie uznane za przetworzone.`);
+          break;
+      }
 
       await db
         .update(outboxEvents)
