@@ -52,7 +52,7 @@ export default function DashboardPage() {
   // Pobierz stan aktywnej zmiany przy montowaniu
   const fetchShiftState = async () => {
     try {
-      const res = await getActiveShiftAction();
+      const res = await fetch('/api/shift', { cache: 'no-store' }).then(r => r.json());
       setActiveShiftInfo(res);
       if (res.suggestedRole) {
         setSelectedRole(res.suggestedRole);
@@ -97,16 +97,22 @@ export default function DashboardPage() {
     setSubmittingAction(true);
     setStatusMessage(null);
     try {
-      const res = await startShiftAction(selectedRole);
+      const response = await fetch('/api/shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start', shiftRole: selectedRole }),
+      });
+      const res = await response.json();
       if (res.success) {
         setShowStartModal(false);
         await fetchShiftState();
-        setStatusMessage(`Usługa pracy została włączona (${res.roleLabel}) o godz. ${res.startTime}!`);
+        setStatusMessage(`Usługa pracy została włączona (${res.roleLabel || getRoleLabel(selectedRole)}) o godz. ${res.startTime || 'teraz'}!`);
       } else {
         setStatusMessage(res.error || 'Błąd uruchamiania zmiany.');
       }
     } catch (e: any) {
-      setStatusMessage(e.message || 'Błąd serwera.');
+      console.error('Błąd startShift:', e);
+      setStatusMessage(e.message || 'Błąd połączenia z serwerem.');
     } finally {
       setSubmittingAction(false);
     }
@@ -121,15 +127,21 @@ export default function DashboardPage() {
     setSubmittingAction(true);
     setStatusMessage(null);
     try {
-      const res = await stopShiftAction();
+      const response = await fetch('/api/shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      const res = await response.json();
       if (res.success) {
         await fetchShiftState();
-        setStatusMessage(`Zmiana zakończona pomyślnie (${res.duration})! Wpis został dodany do Twojej Karty Godzin.`);
+        setStatusMessage(`Zmiana zakończona pomyślnie (${res.duration || ''})! Wpis został dodany do Twojej Karty Godzin.`);
       } else {
         setStatusMessage(res.error || 'Błąd kończenia zmiany.');
       }
     } catch (e: any) {
-      setStatusMessage(e.message || 'Błąd serwera.');
+      console.error('Błąd stopShift:', e);
+      setStatusMessage(e.message || 'Błąd połączenia z serwerem.');
     } finally {
       setSubmittingAction(false);
     }

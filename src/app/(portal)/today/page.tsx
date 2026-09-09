@@ -76,7 +76,7 @@ export default function TodayPage() {
   const fetchShiftState = async () => {
     try {
       setLoadingShift(true);
-      const res = await getActiveShiftAction();
+      const res = await fetch('/api/shift', { cache: 'no-store' }).then(r => r.json());
       setActiveShiftInfo(res);
       if (res.suggestedRole) {
         setSelectedRole(res.suggestedRole);
@@ -154,7 +154,12 @@ export default function TodayPage() {
     setMessage(null);
     try {
       const roleToStart = selectedRole || 'lead';
-      const res = await startShiftAction(roleToStart);
+      const response = await fetch('/api/shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start', shiftRole: roleToStart }),
+      });
+      const res = await response.json();
       if (res.success) {
         await fetchShiftState();
         setMessage(`Usługa pracy została włączona (${res.roleLabel || getRoleLabel(roleToStart)}) o godz. ${res.startTime || 'teraz'}!`);
@@ -163,7 +168,7 @@ export default function TodayPage() {
       }
     } catch (e: any) {
       console.error('Błąd uruchamiania zmiany:', e);
-      setMessage(e?.message || 'Błąd serwera podczas uruchamiania usługi.');
+      setMessage(e?.message || 'Błąd połączenia z serwerem podczas uruchamiania usługi.');
     } finally {
       setSubmittingShiftAction(false);
     }
@@ -178,7 +183,12 @@ export default function TodayPage() {
     setSubmittingShiftAction(true);
     setMessage(null);
     try {
-      const res = await stopShiftAction();
+      const response = await fetch('/api/shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      const res = await response.json();
       if (res.success) {
         await fetchShiftState();
         setMessage(`Zmiana zakończona pomyślnie (${res.duration || ''})! Wpis został zarejestrowany w Karcie Godzin.`);
@@ -187,7 +197,7 @@ export default function TodayPage() {
       }
     } catch (e: any) {
       console.error('Błąd kończenia zmiany:', e);
-      setMessage(e?.message || 'Błąd serwera podczas kończenia usługi.');
+      setMessage(e?.message || 'Błąd połączenia z serwerem podczas kończenia usługi.');
     } finally {
       setSubmittingShiftAction(false);
     }
@@ -198,7 +208,12 @@ export default function TodayPage() {
     if (!confirm('Czy na pewno chcesz awaryjnie zresetować usługę pracy i zacząć od nowa?')) return;
     setSubmittingShiftAction(true);
     try {
-      const res = await resetActiveShiftAction();
+      const response = await fetch('/api/shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      });
+      const res = await response.json();
       if (res.success) {
         await fetchShiftState();
         setMessage('Status usługi pracy został pomyślnie zresetowany.');
@@ -206,7 +221,7 @@ export default function TodayPage() {
         setMessage(res.error || 'Błąd resetowania zmiany.');
       }
     } catch (e: any) {
-      setMessage(e.message || 'Błąd resetowania.');
+      setMessage(e?.message || 'Błąd resetowania.');
     } finally {
       setSubmittingShiftAction(false);
     }
