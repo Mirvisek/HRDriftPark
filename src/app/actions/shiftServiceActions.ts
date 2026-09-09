@@ -46,8 +46,11 @@ function getPolandDateTime() {
   });
 
   const timeStr = timeFormatter.format(now);
-  const dateParts = dateFormatter.format(now).split('.');
-  const dateStr = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+  const parts = dateFormatter.formatToParts(now);
+  const year = parts.find(p => p.type === 'year')?.value || String(now.getFullYear());
+  const month = parts.find(p => p.type === 'month')?.value || String(now.getMonth() + 1).padStart(2, '0');
+  const day = parts.find(p => p.type === 'day')?.value || String(now.getDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
 
   return { dateStr, timeStr, now };
 }
@@ -56,16 +59,16 @@ function getPolandDateTime() {
  * Pobiera informację o aktywnej zmianie zalogowanego pracownika oraz sugerowaną rolę z grafiku na dziś.
  */
 export async function getActiveShiftAction(): Promise<ActiveShiftInfo> {
-  const session = await auth();
-  if (!session?.user) {
-    return { hasActiveShift: false };
-  }
-
-  const userId = Number((session.user as { id?: string }).id);
-  const venueId = Number((session.user as { venueId?: number }).venueId || 1);
-  const isDemo = (session.user as { isDemo?: boolean }).isDemo === true;
-
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return { hasActiveShift: false };
+    }
+
+    const userId = Number((session.user as { id?: string }).id);
+    const venueId = Number((session.user as { venueId?: number }).venueId || 1);
+    const isDemo = (session.user as { isDemo?: boolean }).isDemo === true;
+
     const { dateStr } = getPolandDateTime();
 
     // 1. Sprawdź czy pracownik ma już aktywną zmianę
@@ -123,21 +126,21 @@ export async function getActiveShiftAction(): Promise<ActiveShiftInfo> {
  * Rozpoczyna usługę pracy (Punch-In) z wybraną rolą.
  */
 export async function startShiftAction(shiftRole: ShiftRole): Promise<{ success: boolean; error?: string; startTime?: string; roleLabel?: string }> {
-  const session = await auth();
-  if (!session?.user) {
-    return { success: false, error: 'Brak autoryzacji.' };
-  }
-
-  const validRoles: ShiftRole[] = ['lead', 'support', 'cleaning', 'replacement'];
-  if (!validRoles.includes(shiftRole)) {
-    return { success: false, error: 'Nieprawidłowa rola na zmianie.' };
-  }
-
-  const userId = Number((session.user as { id?: string }).id);
-  const venueId = Number((session.user as { venueId?: number }).venueId || 1);
-  const isDemo = (session.user as { isDemo?: boolean }).isDemo === true;
-
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return { success: false, error: 'Brak autoryzacji.' };
+    }
+
+    const validRoles: ShiftRole[] = ['lead', 'support', 'cleaning', 'replacement'];
+    if (!validRoles.includes(shiftRole)) {
+      return { success: false, error: 'Nieprawidłowa rola na zmianie.' };
+    }
+
+    const userId = Number((session.user as { id?: string }).id);
+    const venueId = Number((session.user as { venueId?: number }).venueId || 1);
+    const isDemo = (session.user as { isDemo?: boolean }).isDemo === true;
+
     // Sprawdź czy już nie jest w pracy
     const existing = await db
       .select({ id: activeShifts.id })
@@ -177,15 +180,15 @@ export async function startShiftAction(shiftRole: ShiftRole): Promise<{ success:
  * Kończy usługę pracy (Punch-Out), wylicza czas i zapisuje do timesheets.
  */
 export async function stopShiftAction(): Promise<{ success: boolean; error?: string; timesheetId?: number; duration?: string }> {
-  const session = await auth();
-  if (!session?.user) {
-    return { success: false, error: 'Brak autoryzacji.' };
-  }
-
-  const userId = Number((session.user as { id?: string }).id);
-  const isDemo = (session.user as { isDemo?: boolean }).isDemo === true;
-
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return { success: false, error: 'Brak autoryzacji.' };
+    }
+
+    const userId = Number((session.user as { id?: string }).id);
+    const isDemo = (session.user as { isDemo?: boolean }).isDemo === true;
+
     const activeList = await db
       .select()
       .from(activeShifts)

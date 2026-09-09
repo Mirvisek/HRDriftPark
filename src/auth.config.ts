@@ -1,6 +1,7 @@
 import type { NextAuthConfig } from "next-auth";
 
 export const authConfig = {
+  trustHost: true,
   providers: [], // Puste w konfiguracji bazowej (middleware nie wspiera Credentials)
   callbacks: {
     jwt({ token, user }) {
@@ -37,5 +38,5 @@ export const authConfig = {
   pages: {
     signIn: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET || "drift_park_extreme_secret_key_2026_nextauth_custom",
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "drift_park_extreme_secret_key_2026_nextauth_custom",
 } satisfies NextAuthConfig;

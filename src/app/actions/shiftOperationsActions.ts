@@ -13,10 +13,15 @@ export type ShiftReportValues = { intensity: 'calm' | 'standard' | 'busy'; incid
 
 type Scope = { userId: number; name: string; venueId: number; isDemo: boolean };
 async function scope(): Promise<Scope | null> {
-  const session = await auth();
-  if (!session?.user) return null;
-  const user = session.user as typeof session.user & { id?: string; venueId?: number; isDemo?: boolean };
-  return { userId: Number(user.id), name: session.user.name || 'Pracownik', venueId: Number(user.venueId || 1), isDemo: user.isDemo === true };
+  try {
+    const session = await auth();
+    if (!session?.user) return null;
+    const user = session.user as typeof session.user & { id?: string; venueId?: number; isDemo?: boolean };
+    return { userId: Number(user.id), name: session.user.name || 'Pracownik', venueId: Number(user.venueId || 1), isDemo: user.isDemo === true };
+  } catch (error) {
+    console.error("[Shift operations] scope auth error:", error);
+    return null;
+  }
 }
 const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const amount = (value: number) => Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
