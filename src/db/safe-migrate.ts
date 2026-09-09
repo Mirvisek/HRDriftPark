@@ -20,9 +20,15 @@ if (fs.existsSync(envPath)) {
 import { sql } from 'drizzle-orm';
 
 function isDuplicateColumnError(e: any): boolean {
-  const code = e.code || e.originalError?.code;
-  const msg = String(e.message || '');
+  const code = e.code || e.originalError?.code || e.cause?.code;
+  const msg = `${String(e.message || '')} ${String(e.cause?.message || '')} ${String(e.originalError?.message || '')}`;
   return code === 'ER_DUP_FIELDNAME' || msg.includes('Duplicate column name') || msg.includes('duplicate column');
+}
+
+function isDuplicateIndexError(e: any): boolean {
+  const code = e.code || e.originalError?.code || e.cause?.code;
+  const msg = `${String(e.message || '')} ${String(e.cause?.message || '')} ${String(e.originalError?.message || '')}`;
+  return code === 'ER_DUP_KEYNAME' || msg.includes('Duplicate key name') || msg.includes('duplicate key');
 }
 
 async function main() {
@@ -51,9 +57,7 @@ async function main() {
       await db.execute(sql.raw(`ALTER TABLE \`${tableName}\` ADD INDEX \`${indexName}\` (${columns});`));
       console.log(`[✓] Dodano indeks '${indexName}' do '${tableName}'`);
     } catch (e: any) {
-      const code = e.code || e.originalError?.code;
-      const msg = String(e.message || '');
-      if (code === 'ER_DUP_KEYNAME' || msg.includes('Duplicate key name')) {
+      if (isDuplicateIndexError(e)) {
         // Ignoruj istniejący indeks
       } else {
         console.error(`Błąd podczas dodawania indeksu '${indexName}' do '${tableName}':`, e.cause?.message || e.originalError?.message || e.message);
@@ -399,12 +403,12 @@ async function main() {
     for (const g of defaultGroups) {
       await db.execute(sql.raw(`
         INSERT IGNORE INTO \`user_groups\` (\`name\`, \`role_key\`, \`permissions\`, \`is_system\`)
-        VALUES (${sql.raw(`'${g.name}', '${g.roleKey}', '${g.permissions}', ${g.isSystem}`)})
+        VALUES ('${g.name}', '${g.roleKey}', '${g.permissions}', ${g.isSystem});
       `));
     }
     console.log("[✓] Domyślne grupy użytkowników zostały zainicjalizowane.");
   } catch (e: any) {
-    console.error("Błąd podczas tworzenia tabeli 'user_groups':", e.message);
+    console.error("Błąd podczas tworzenia tabeli 'user_groups':", e.cause?.message || e.message);
   }
 
   // 16. Indeksy wydajnościowe
