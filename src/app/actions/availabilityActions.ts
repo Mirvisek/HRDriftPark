@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { availability } from "@/db/schema";
-import { eq, and, like } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
 
@@ -42,7 +42,9 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
 
 export async function getAvailability(userId: number, year: number, month: number) {
   const monthStr = String(month).padStart(2, '0');
-  const yearMonthPattern = `${year}-${monthStr}-%`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const startDate = `${year}-${monthStr}-01`;
+  const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
   
   try {
     const session = await auth();
@@ -54,7 +56,8 @@ export async function getAvailability(userId: number, year: number, month: numbe
       .where(
         and(
           eq(availability.userId, userId),
-          like(availability.date, yearMonthPattern),
+          gte(availability.date, startDate),
+          lte(availability.date, endDate),
           eq(availability.isDemo, userIsDemo)
         )
       );

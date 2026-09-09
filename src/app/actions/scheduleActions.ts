@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { workSchedule, availability, users, settings } from "@/db/schema";
-import { eq, and, like } from "drizzle-orm";
+import { eq, and, gte, lte, like } from "drizzle-orm";
 import { auth } from "@/auth";
 import { sendSystemNotification, logAuditEvent } from "./userActions";
 import { sendPushNotification, getFormattedNotification } from "@/lib/webPush";
@@ -26,7 +26,9 @@ export interface ScheduleEntry {
 
 export async function getWorkSchedule(year: number, month: number) {
   const monthStr = String(month).padStart(2, '0');
-  const pattern = `${year}-${monthStr}-%`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const startDate = `${year}-${monthStr}-01`;
+  const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
   try {
     const session = await auth();
@@ -47,7 +49,13 @@ export async function getWorkSchedule(year: number, month: number) {
         version: workSchedule.version,
       })
       .from(workSchedule)
-      .where(and(like(workSchedule.date, pattern), eq(workSchedule.isDemo, userIsDemo)));
+      .where(
+        and(
+          gte(workSchedule.date, startDate),
+          lte(workSchedule.date, endDate),
+          eq(workSchedule.isDemo, userIsDemo)
+        )
+      );
 
     // Dołączmy nazwy użytkowników (tylko tego samego trybu)
     const allUsers = await db.select({ id: users.id, name: users.displayName }).from(users)
@@ -358,13 +366,14 @@ export async function generateSchedule(year: number, month: number) {
 
   try {
     // Pobierz wszystkich dostępnych pracowników w wybranym miesiącu
-    const pattern = `${year}-${monthStr}-%`;
+    const startDate = `${year}-${monthStr}-01`;
+    const endDate = `${year}-${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
 
     // Sprawdź czy grafik na ten miesiąc został już wygenerowany w całości (np. ma więcej niż 10 dni obsady)
     const existingSchedule = await db
       .select()
       .from(workSchedule)
-      .where(like(workSchedule.date, pattern))
+      .where(and(gte(workSchedule.date, startDate), lte(workSchedule.date, endDate)))
       .limit(11);
 
     if (existingSchedule.length > 10) {
@@ -376,7 +385,8 @@ export async function generateSchedule(year: number, month: number) {
       .from(availability)
       .where(
         and(
-          like(availability.date, pattern),
+          gte(availability.date, startDate),
+          lte(availability.date, endDate),
           eq(availability.status, 'available')
         )
       );

@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { db } from '@/db';
 import { notifications, timesheets, users, shiftCashReconciliations, shiftChecklistItems, shiftChecklists, shiftReports, workSchedule } from '@/db/schema';
-import { eq, like, and } from 'drizzle-orm';
+import { eq, and, gte, lte } from 'drizzle-orm';
 import type { TimesheetEntry } from '@/app/actions/timesheetActions';
 
 export function initCronJobs() {
@@ -40,15 +40,17 @@ export function initCronJobs() {
         const year = today.getFullYear();
         const month = today.getMonth() + 1;
         const monthStr = String(month).padStart(2, '0');
-        const pattern = `${year}-${monthStr}-%`;
+        const lastDay = new Date(year, month, 0).getDate();
+        const startDate = `${year}-${monthStr}-01`;
+        const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
         // Zablokuj wszystkie wpisy z bieżącego miesiąca w bazie danych
         await db
           .update(timesheets)
           .set({ isLocked: true })
-          .where(like(timesheets.date, pattern));
+          .where(and(gte(timesheets.date, startDate), lte(timesheets.date, endDate)));
           
-        console.log(`[CRON] Pomyślnie zablokowano w bazie dane kart pracy na okres: ${pattern}`);
+        console.log(`[CRON] Pomyślnie zablokowano w bazie dane kart pracy na okres od ${startDate} do ${endDate}`);
         
         const { getAllTimesheets } = await import("@/app/actions/timesheetActions");
         const { checkConflicts } = await import("@/lib/timesheetUtils");
