@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { taskTemplates, shiftTasks, users } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 
 /**
  * Pobiera zadania na określony dzień.
@@ -111,6 +112,10 @@ export async function addAdditionalTaskAction(
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
   const userVenueId = (session.user as any).venueId || 1;
   const userIsDemo = (session.user as any).isDemo === true;
+
+  if (!hasPermission(session.user, 'tasks:edit')) {
+    return { success: false, error: "Brak uprawnień do dodawania zadań." };
+  }
 
   if (!title.trim()) {
     return { success: false, error: "Tytuł zadania nie może być pusty." };

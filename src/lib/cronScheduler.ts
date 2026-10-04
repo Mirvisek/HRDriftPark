@@ -1,21 +1,40 @@
 import cron from 'node-cron';
 import { db } from '@/db';
-import { notifications, timesheets, users, shiftCashReconciliations, shiftChecklistItems, shiftChecklists, shiftReports, workSchedule } from '@/db/schema';
+import { notifications, timesheets, users, shiftCashReconciliations, shiftChecklistItems, shiftChecklists, shiftReports, workSchedule, settings } from '@/db/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { withCronLock } from '@/lib/cronLock';
 import { insertSystemNotification } from '@/lib/notifications';
 import { checkConflicts } from '@/lib/timesheetUtils';
 import type { TimesheetEntry } from '@/app/actions/timesheetActions';
 
+async function getSettingInt(key: string, fallback: number, min: number, max: number): Promise<number> {
+  try {
+    const rows = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, key))
+      .limit(1);
+    const n = Number(rows[0]?.value ?? fallback);
+    if (!Number.isFinite(n) || n < min || n > max) return fallback;
+    return Math.trunc(n);
+  } catch {
+    return fallback;
+  }
+}
+
 export function initCronJobs() {
   if (typeof window !== 'undefined') return;
 
   console.log("[CRON] Inicjalizacja harmonogramu zadań automatycznych (Drift Park Extreme)...");
 
-  // 1. Zamknięcie edycji dostępności (16-go o 00:00)
-  cron.schedule('0 0 16 * *', async () => {
+  // 1. Zamknięcie edycji dostępności — codziennie o 00:05, reaguje na skonfigurowany dzień
+  cron.schedule('5 0 * * *', async () => {
     await withCronLock('cron_availability_lock_notice', 0, async () => {
-      console.log("[CRON] [16-ty dzień miesiąca] Blokowanie edycji dyspozycyjności pracowników.");
+      const lockDay = await getSettingInt('cron_availability_lock_day', 15, 1, 28);
+      const today = new Date();
+      if (today.getDate() !== lockDay + 1) return;
+
+      console.log(`[CRON] [${lockDay + 1}. dzień miesiąca] Blokowanie edycji dyspozycyjności pracowników (lockDay=${lockDay}).`);
       try {
         const allUsers = await db.select({ id: users.id, isDemo: users.isDemo }).from(users);
         for (const u of allUsers) {
@@ -94,10 +113,14 @@ export function initCronJobs() {
     });
   });
 
-  // 3. Przypomnienie o zmianie dzień wcześniej o 20:00
-  cron.schedule('0 20 * * *', async () => {
+  // 3. Przypomnienie o zmianie dzień wcześniej — codziennie o pełnej godzinie, filtruje wg ustawienia
+  cron.schedule('0 * * * *', async () => {
     await withCronLock('cron_shift_reminders', 0, async () => {
-      console.log("[CRON] [Godzina 20:00] Rozpoczęto wysyłanie przypomnień o jutrzejszych dyżurach.");
+      const reminderHour = await getSettingInt('cron_reminder_hour', 20, 0, 23);
+      const now = new Date();
+      if (now.getHours() !== reminderHour) return;
+
+      console.log(`[CRON] [Godzina ${reminderHour}:00] Rozpoczęto wysyłanie przypomnień o jutrzejszych dyżurach.`);
       try {
         const today = new Date();
         const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);

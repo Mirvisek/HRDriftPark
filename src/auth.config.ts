@@ -11,7 +11,6 @@ function resolveAuthSecret(): string {
     );
   }
 
-  // Dev-only ephemeral secret — sessions reset on process restart.
   console.warn(
     "[auth] AUTH_SECRET is not set. Using an ephemeral development secret. Set AUTH_SECRET before deploying."
   );
@@ -21,13 +20,31 @@ function resolveAuthSecret(): string {
   return (globalThis as any).__devAuthSecret as string;
 }
 
+/** Fail-closed: strip identity so Auth.js treats the session as logged out. */
+function invalidateToken(token: Record<string, unknown>) {
+  const cleared: Record<string, unknown> = { ...token };
+  delete cleared.sub;
+  delete cleared.email;
+  delete cleared.name;
+  delete cleared.picture;
+  delete cleared.role;
+  delete cleared.position;
+  delete cleared.permissions;
+  delete cleared.venueId;
+  delete cleared.mustChangePassword;
+  delete cleared.sessionVersion;
+  delete cleared.rememberMe;
+  cleared.isDemo = false;
+  cleared.exp = 0;
+  return cleared;
+}
+
 export const authConfig = {
-  // Prefer AUTH_URL/NEXTAUTH_URL in production; allow explicit AUTH_TRUST_HOST=true behind proxies.
   trustHost:
     process.env.AUTH_TRUST_HOST === "true" ||
     Boolean(process.env.AUTH_URL || process.env.NEXTAUTH_URL) ||
     process.env.NODE_ENV !== "production",
-  providers: [], // Puste w konfiguracji bazowej (middleware nie wspiera Credentials)
+  providers: [],
   session: {
     strategy: "jwt",
   },
@@ -44,14 +61,12 @@ export const authConfig = {
         token.sessionVersion = (user as any).sessionVersion ?? 0;
 
         if (token.rememberMe === "true") {
-          token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 dni
+          token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
         } else {
-          token.exp = Math.floor(Date.now() / 1000) + 12 * 60 * 60; // 12 godzin
+          token.exp = Math.floor(Date.now() / 1000) + 12 * 60 * 60;
         }
       }
 
-      // Re-validate role/permissions/sessionVersion from DB so revocations take effect.
-      // Throttle to once per 60s unless this is a fresh login.
       const now = Math.floor(Date.now() / 1000);
       const lastCheck = typeof token.lastAuthzCheck === "number" ? token.lastAuthzCheck : 0;
       const shouldRefresh = Boolean(user) || trigger === "update" || now - lastCheck >= 60;
@@ -76,14 +91,16 @@ export const authConfig = {
             .limit(1);
 
           if (rows.length === 0) {
-            throw new Error("User no longer exists");
+            console.warn("[auth] JWT rejected — user no longer exists");
+            return invalidateToken(token as any) as typeof token;
           }
 
           const row = rows[0];
           const tokenVersion = Number(token.sessionVersion ?? 0);
           const dbVersion = Number(row.sessionVersion ?? 0);
           if (tokenVersion !== dbVersion) {
-            throw new Error("Session invalidated");
+            console.warn("[auth] JWT rejected — sessionVersion mismatch");
+            return invalidateToken(token as any) as typeof token;
           }
 
           token.role = row.role;
@@ -95,13 +112,19 @@ export const authConfig = {
           token.sessionVersion = dbVersion;
           token.lastAuthzCheck = now;
         } catch (e) {
-          console.error("[auth] Failed to refresh JWT claims from DB:", e);
+          // Transient DB errors: fail closed to avoid serving stale elevated claims.
+          console.error("[auth] Failed to refresh JWT claims from DB — invalidating session:", e);
+          return invalidateToken(token as any) as typeof token;
         }
       }
 
       return token;
     },
     session({ session, token }) {
+      // No sub => treat as unauthenticated session surface
+      if (!token?.sub) {
+        return { ...session, user: undefined as any };
+      }
       if (session.user) {
         (session.user as any).id = token.sub;
         (session.user as any).role = token.role;

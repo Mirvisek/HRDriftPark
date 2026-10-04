@@ -97,6 +97,8 @@ const STATIC_ALLOWED_SETTINGS_KEYS = new Set([
   "site_phone",
   "site_timezone",
   "site_logo",
+  "site_currency",
+  "site_date_format",
   "template_shift_reminder_lead",
   "template_shift_reminder_support",
   "template_shift_reminder_event",
@@ -105,11 +107,27 @@ const STATIC_ALLOWED_SETTINGS_KEYS = new Set([
   "template_assignment_event",
   "template_hours_change",
   "template_schedule_published",
+  "template_push_msg",
   "anomaly_long_shift_hours",
   "anomaly_missing_checkout_hours",
   "anomaly_schedule_deviation_minutes",
   "anomaly_min_rest_hours",
   "availability_lock_day",
+  "cron_availability_lock_day",
+  "cron_reminder_hour",
+  "alert_expiry_days",
+  "alert_low_stock_global",
+  "warehouse_suppliers",
+  "warehouse_locations",
+  "sms_api_key",
+  "sms_sender_name",
+  "security_session_hours",
+  "security_force_password_days",
+  "security_2fa_required",
+  "require_delete_reason",
+  "max_upload_size_mb",
+  "sound_notifications_enabled",
+  "holiday_dates",
 ]);
 
 export function isAllowedSettingsKey(key: string): boolean {
@@ -117,12 +135,19 @@ export function isAllowedSettingsKey(key: string): boolean {
   if (key.startsWith("template_")) return true;
   if (key.startsWith("schedule_published_")) return true;
   if (key.startsWith("anomaly_")) return true;
+  if (key.startsWith("alert_")) return true;
+  if (key.startsWith("cron_")) return true;
+  if (key.startsWith("warehouse_")) return true;
+  if (key.startsWith("security_")) return true;
+  if (key.startsWith("sms_")) return true;
+  if (key.startsWith("site_")) return true;
   return false;
 }
 
-/** Keys redacted from database backups. */
+/** Keys redacted from settings reads and database backups. */
 export const SECRET_SETTINGS_KEYS = new Set([
   "smtp_password",
+  "sms_api_key",
 ]);
 
 /** Prefer env base URL for password-reset links to prevent site_url phishing. */

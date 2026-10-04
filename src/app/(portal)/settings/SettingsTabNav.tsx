@@ -19,8 +19,7 @@ export type SettingsTab =
   | 'venues'
   | 'site'
   | 'audit'
-  | 'backup'
-  | 'automation';
+  | 'backup';
 
 interface SettingsTabNavProps {
   activeTab: SettingsTab;
@@ -29,6 +28,7 @@ interface SettingsTabNavProps {
 }
 
 export default function SettingsTabNav({ activeTab, onTabChange, user }: SettingsTabNavProps) {
+  const role = (user as any)?.role;
   return (
     <div className="flex border-b border-white/10 gap-2">
       {hasPermission(user as any, 'users:manage') && (
@@ -122,7 +122,7 @@ export default function SettingsTabNav({ activeTab, onTabChange, user }: Setting
           <span>Audyt Zdarzeń</span>
         </button>
       )}
-      {hasPermission(user as any, 'settings:edit') && (
+      {role === 'owner' && (
         <button
           onClick={() => onTabChange('backup')}
           className={`px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 flex items-center gap-2 cursor-pointer ${

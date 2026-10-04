@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from "@/db";
-import { availability } from "@/db/schema";
+import { availability, settings } from "@/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
@@ -16,6 +16,21 @@ export interface AvailabilityEntry {
   remarks?: string | null;
 }
 
+async function getAvailabilityLockDay(): Promise<number> {
+  try {
+    const rows = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'cron_availability_lock_day'))
+      .limit(1);
+    const day = Number(rows[0]?.value ?? 15);
+    if (!Number.isFinite(day) || day < 1 || day > 28) return 15;
+    return day;
+  } catch {
+    return 15;
+  }
+}
+
 export async function checkIsLocked(targetDateStr: string, userRole: string) {
   if (userRole === 'owner' || userRole === 'manager') {
     return false;
@@ -27,6 +42,7 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
   const currentDay = now.getDate();
+  const lockDay = await getAvailabilityLockDay();
   
   const monthsDiff = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
   
@@ -35,7 +51,7 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
   }
   
   if (monthsDiff === 1) {
-    return currentDay > 15;
+    return currentDay > lockDay;
   }
   
   return false;
@@ -103,7 +119,8 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
 
   const isLocked = await checkIsLocked(targetDate, userRole);
   if (isLocked) {
-    return { success: false, error: "Edycja dyspozycyjności na ten okres została zablokowana (minął 15. dzień miesiąca)." };
+    const lockDay = await getAvailabilityLockDay();
+    return { success: false, error: `Edycja dyspozycyjności na ten okres została zablokowana (minął ${lockDay}. dzień miesiąca).` };
   }
   
   try {
@@ -113,7 +130,8 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
       .where(
         and(
           eq(availability.userId, targetUserId),
-          eq(availability.date, targetDate)
+          eq(availability.date, targetDate),
+          eq(availability.isDemo, (session.user as any).isDemo === true)
         )
       )
       .limit(1);
@@ -161,12 +179,19 @@ export async function reviewAvailability(
       await db
         .update(availability)
         .set({ statusManager, updatedAt: new Date() })
-        .where(eq(availability.id, id));
+        .where(and(
+          eq(availability.id, id),
+          eq(availability.isDemo, (session.user as any).isDemo === true)
+        ));
     } else {
       const existing = await db
         .select()
         .from(availability)
-        .where(and(eq(availability.userId, targetUserId), eq(availability.date, dateStr)))
+        .where(and(
+          eq(availability.userId, targetUserId),
+          eq(availability.date, dateStr),
+          eq(availability.isDemo, (session.user as any).isDemo === true)
+        ))
         .limit(1);
 
       if (existing.length > 0) {

@@ -42,7 +42,7 @@ export async function getSettingsAction() {
     const results = await db.select().from(settings);
     const settingsMap: Record<string, string> = {};
     results.forEach(s => {
-      settingsMap[s.key] = s.value;
+      settingsMap[s.key] = SECRET_SETTINGS_KEYS.has(s.key) ? '' : s.value;
     });
     return { success: true, settings: settingsMap };
   } catch (e: any) {
@@ -279,13 +279,18 @@ export async function deleteUserAction(userId: number) {
   const session = await checkAuth('users:manage');
   const currentUserId = Number((session.user as any).id);
   const actorRole = (session.user as any).role as string;
+  const actorIsDemo = (session.user as any).isDemo === true;
 
   if (userId === currentUserId) {
     return { success: false, error: "Nie możesz usunąć własnego konta." };
   }
 
   try {
-    const target = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+    const target = await db
+      .select({ id: users.id, role: users.role, isDemo: users.isDemo })
+      .from(users)
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)))
+      .limit(1);
     if (target.length === 0) {
       return { success: false, error: "Nie znaleziono użytkownika." };
     }
@@ -295,13 +300,16 @@ export async function deleteUserAction(userId: number) {
     }
 
     if (target[0].role === 'owner') {
-      const owners = await db.select({ id: users.id }).from(users).where(eq(users.role, 'owner'));
+      const owners = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.role, 'owner'), eq(users.isDemo, actorIsDemo)));
       if (owners.length <= 1) {
         return { success: false, error: "Nie można usunąć ostatniego właściciela." };
       }
     }
 
-    await db.delete(users).where(eq(users.id, userId));
+    await db.delete(users).where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)));
     console.log(`[Settings] Użytkownik o ID ${userId} został usunięty przez ID ${currentUserId}`);
     return { success: true };
   } catch (e: any) {
@@ -353,15 +361,29 @@ export async function testSmtpConnectionAction(config: {
 }
 
 export async function updateUserRateAction(userId: number, rate: number) {
-  await checkAuth('users:manage');
+  const session = await checkAuth('users:manage');
+  const actorRole = (session.user as any).role as string;
+  const actorIsDemo = (session.user as any).isDemo === true;
   if (rate < 0) return { success: false, error: "Stawka nie może być ujemna." };
 
   try {
+    const target = await db
+      .select({ id: users.id, role: users.role })
+      .from(users)
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)))
+      .limit(1);
+    if (target.length === 0) {
+      return { success: false, error: "Nie znaleziono użytkownika." };
+    }
+    if (!canManageTargetRole(actorRole, target[0].role)) {
+      return { success: false, error: "Nie możesz zmieniać stawki użytkownika o równej lub wyższej roli." };
+    }
+
     // 1. Zaktualizuj stawkę w tabeli users (fallback)
     await db
       .update(users)
       .set({ hourlyRate: rate })
-      .where(eq(users.id, userId));
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)));
     
     const todayStr = new Date().toISOString().split('T')[0];
 
@@ -416,6 +438,7 @@ export async function updateUserAction(
 ) {
   const session = await checkAuth('users:manage');
   const actorRole = (session.user as any).role as string;
+  const actorIsDemo = (session.user as any).isDemo === true;
   const { firstName, lastName, displayName, email, role, position, birthDate, permissions, groupId } = userData;
 
   if (!firstName || !lastName || !displayName || !email || !role || !position || !birthDate) {
@@ -429,7 +452,11 @@ export async function updateUserAction(
   const cleanPermissions = sanitizeGrantedPermissions(session.user as any, permissions);
 
   try {
-    const target = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+    const target = await db
+      .select({ id: users.id, role: users.role, permissions: users.permissions })
+      .from(users)
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)))
+      .limit(1);
     if (target.length === 0) {
       return { success: false, error: "Nie znaleziono użytkownika." };
     }
@@ -448,6 +475,10 @@ export async function updateUserAction(
       return { success: false, error: "Inny użytkownik o podanym adresie e-mail już istnieje." };
     }
 
+    const roleOrPermsChanged =
+      target[0].role !== role ||
+      String(target[0].permissions || '') !== cleanPermissions;
+
     await db
       .update(users)
       .set({
@@ -460,9 +491,12 @@ export async function updateUserAction(
         birthDate: birthDate.trim(),
         permissions: cleanPermissions,
         groupId: groupId || null,
-        venueId: userData.venueId || null
+        venueId: userData.venueId || null,
+        ...(roleOrPermsChanged
+          ? { sessionVersion: sql`${users.sessionVersion} + 1` }
+          : {}),
       })
-      .where(eq(users.id, userId));
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)));
 
     console.log(`[Settings] Zaktualizowano konto ID: ${userId} (${email}) przez ${session.user?.name}`);
     return { success: true };
@@ -475,12 +509,13 @@ export async function updateUserAction(
 export async function resetUserPasswordAction(userId: number) {
   const session = await checkAuth('users:manage');
   const actorRole = (session.user as any).role as string;
+  const actorIsDemo = (session.user as any).isDemo === true;
 
   try {
     const userResult = await db
       .select()
       .from(users)
-      .where(eq(users.id, userId))
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)))
       .limit(1);
 
     if (userResult.length === 0) {
@@ -695,15 +730,25 @@ export async function getUserSalaryHistoryAction(userId: number) {
 export async function addUserSalaryRateAction(userId: number, rate: number, validFrom: string) {
   const session = await auth();
   if (!session?.user) throw new Error("Brak autoryzacji.");
-  if (
-    !hasPermission(session.user, 'payroll:view') &&
-    !hasPermission(session.user, 'users:manage')
-  ) {
+  // Writes require users:manage — payroll:view is read-only.
+  if (!hasPermission(session.user, 'users:manage')) {
     throw new Error("Brak uprawnień do tej operacji.");
   }
+  const actorRole = (session.user as any).role as string;
+  const actorIsDemo = (session.user as any).isDemo === true;
   try {
     if (isNaN(rate) || rate < 0) return { success: false, error: "Stawka musi być dodatnią liczbą." };
     if (!validFrom) return { success: false, error: "Data rozpoczęcia stawki jest wymagana." };
+
+    const target = await db
+      .select({ id: users.id, role: users.role })
+      .from(users)
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)))
+      .limit(1);
+    if (target.length === 0) return { success: false, error: "Nie znaleziono użytkownika." };
+    if (!canManageTargetRole(actorRole, target[0].role)) {
+      return { success: false, error: "Nie możesz zmieniać stawki użytkownika o równej lub wyższej roli." };
+    }
 
     await db.insert(salaryHistory).values({
       userId,
@@ -712,11 +757,13 @@ export async function addUserSalaryRateAction(userId: number, rate: number, vali
       validTo: null
     });
 
-    // Zaktualizuj także aktualną stawkę w tabeli users
-    await db.update(users).set({ hourlyRate: rate }).where(eq(users.id, userId));
+    await db
+      .update(users)
+      .set({ hourlyRate: rate })
+      .where(and(eq(users.id, userId), eq(users.isDemo, actorIsDemo)));
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: e.message };
+    return { success: false, error: "Błąd bazy danych przy zapisie stawki." };
   }
 }
 
@@ -783,10 +830,10 @@ export async function sendTestEmailAction(targetEmail: string) {
     const smtpHost = await getSetting('smtp_host', process.env.SMTP_HOST || '');
     const smtpPort = Number(await getSetting('smtp_port', process.env.SMTP_PORT || '587'));
     const smtpUser = await getSetting('smtp_user', process.env.SMTP_USER || '');
-    const smtpPass = await getSetting('smtp_pass', process.env.SMTP_PASS || '');
+    const smtpPass = await getSetting('smtp_password', process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '');
     const smtpFrom = await getSetting('smtp_from', process.env.SMTP_FROM || 'powiadomienia@driftpark.pl');
 
-    if (!smtpHost || !smtpUser) {
+    if (!smtpHost || !smtpUser || !smtpPass) {
       return { success: false, error: "Brak skonfigurowanych ustawień SMTP w systemie." };
     }
 

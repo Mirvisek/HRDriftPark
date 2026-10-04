@@ -11,21 +11,7 @@ import {
   getTrustedBaseUrl,
   hashResetToken,
 } from "@/lib/authz";
-
-/** Simple in-memory rate limit for forgot-password (per process). */
-const forgotPasswordAttempts = new Map<string, { count: number; resetAt: number }>();
-
-function checkForgotPasswordRateLimit(key: string): boolean {
-  const now = Date.now();
-  const entry = forgotPasswordAttempts.get(key);
-  if (!entry || entry.resetAt < now) {
-    forgotPasswordAttempts.set(key, { count: 1, resetAt: now + 15 * 60 * 1000 });
-    return true;
-  }
-  if (entry.count >= 5) return false;
-  entry.count += 1;
-  return true;
-}
+import { checkRateLimit } from "@/lib/rateLimit";
 
 async function bumpSessionVersion(userId: number) {
   await db
@@ -83,7 +69,8 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
   const successMessage = "Link do restartu hasła został wysłany! Jeżeli nie posiadasz konta skontaktuj się z administratorem!";
   const rateKey = email.trim().toLowerCase();
 
-  if (!checkForgotPasswordRateLimit(rateKey)) {
+  const rate = checkRateLimit(`forgot-password:${rateKey}`, 5, 15 * 60 * 1000);
+  if (!rate.allowed) {
     // Same generic message — do not reveal throttling details to attackers.
     return { success: true, message: successMessage };
   }

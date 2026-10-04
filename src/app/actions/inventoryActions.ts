@@ -180,11 +180,14 @@ export async function addProductAction(productData: any) {
 export async function updateProductAction(id: number, productData: any) {
   const session = await checkAuth('inventory:manage');
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
     if (!productData.name?.trim()) return { success: false, error: "Nazwa produktu jest wymagana." };
     if (!productData.categoryId) return { success: false, error: "Kategoria jest wymagana." };
 
-    const existing = await db.select().from(warehouseProducts).where(eq(warehouseProducts.id, id)).limit(1);
+    const existing = await db.select().from(warehouseProducts)
+      .where(and(eq(warehouseProducts.id, id), eq(warehouseProducts.isDemo, userIsDemo)))
+      .limit(1);
     if (existing.length === 0) return { success: false, error: "Produkt nie istnieje." };
     
     const wasExpiry = existing[0].hasExpiry;
@@ -204,13 +207,13 @@ export async function updateProductAction(id: number, productData: any) {
       status: productData.status || 'active',
       remarks: productData.remarks?.trim() || null
     })
-    .where(eq(warehouseProducts.id, id));
+    .where(and(eq(warehouseProducts.id, id), eq(warehouseProducts.isDemo, userIsDemo)));
     
     // Konwersja partii dla tego lokalu przy zmianie trybu terminu ważności
     if (wasExpiry && !isExpiry) {
-      const hasDefault = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'), eq(warehouseBatches.venueId, userVenueId))).limit(1);
+      const hasDefault = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'), eq(warehouseBatches.venueId, userVenueId), eq(warehouseBatches.isDemo, userIsDemo))).limit(1);
       if (hasDefault.length === 0) {
-        const activeBatches = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.venueId, userVenueId)));
+        const activeBatches = await db.select().from(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.venueId, userVenueId), eq(warehouseBatches.isDemo, userIsDemo)));
         const sumQty = activeBatches.reduce((acc, b) => acc + b.quantity, 0);
         
         await db.insert(warehouseBatches).values({
@@ -218,15 +221,16 @@ export async function updateProductAction(id: number, productData: any) {
           batchNumber: 'DEFAULT',
           expiryDate: null,
           quantity: sumQty,
-          venueId: userVenueId
+          venueId: userVenueId,
+          isDemo: userIsDemo
         });
         
-        await db.delete(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.venueId, userVenueId), sql`batch_number != 'DEFAULT'`));
+        await db.delete(warehouseBatches).where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.venueId, userVenueId), eq(warehouseBatches.isDemo, userIsDemo), sql`batch_number != 'DEFAULT'`));
       }
     } else if (!wasExpiry && isExpiry) {
       await db.update(warehouseBatches)
         .set({ batchNumber: 'PARTIA-A' })
-        .where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'), eq(warehouseBatches.venueId, userVenueId)));
+        .where(and(eq(warehouseBatches.productId, id), eq(warehouseBatches.batchNumber, 'DEFAULT'), eq(warehouseBatches.venueId, userVenueId), eq(warehouseBatches.isDemo, userIsDemo)));
     }
     
     return { success: true };
@@ -236,11 +240,12 @@ export async function updateProductAction(id: number, productData: any) {
 }
 
 export async function deleteProductAction(id: number) {
-  await checkAuth('inventory:manage');
+  const session = await checkAuth('inventory:manage');
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
     await db.update(warehouseProducts)
       .set({ status: 'inactive' })
-      .where(eq(warehouseProducts.id, id));
+      .where(and(eq(warehouseProducts.id, id), eq(warehouseProducts.isDemo, userIsDemo)));
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -280,7 +285,9 @@ export async function deliverBulkProductsAction(formData: FormData) {
       const qty = Number(item.quantity);
       if (isNaN(qty) || qty <= 0) continue;
       
-      const product = await db.select().from(warehouseProducts).where(eq(warehouseProducts.id, item.productId)).limit(1);
+      const product = await db.select().from(warehouseProducts)
+        .where(and(eq(warehouseProducts.id, item.productId), eq(warehouseProducts.isDemo, userIsDemo)))
+        .limit(1);
       if (product.length === 0) continue;
       
       let batchId: number | null = null;
@@ -457,7 +464,8 @@ export async function startInventoryAction(categoryId: number | null) {
       .from(warehouseInventories)
       .where(and(
         eq(warehouseInventories.status, 'draft'),
-        eq(warehouseInventories.venueId, userVenueId)
+        eq(warehouseInventories.venueId, userVenueId),
+        eq(warehouseInventories.isDemo, userIsDemo)
       ))
       .limit(1);
        
@@ -505,8 +513,20 @@ export async function startInventoryAction(categoryId: number | null) {
 }
 
 export async function saveInventoryDraftAction(inventoryId: number, items: { productId: number; actualStock: number; remarks?: string }[]) {
-  await checkAuth('inventory:inventory');
+  const session = await checkAuth('inventory:inventory');
+  const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   try {
+    const inv = await db.select({ id: warehouseInventories.id })
+      .from(warehouseInventories)
+      .where(and(
+        eq(warehouseInventories.id, inventoryId),
+        eq(warehouseInventories.venueId, userVenueId),
+        eq(warehouseInventories.isDemo, userIsDemo)
+      ))
+      .limit(1);
+    if (inv.length === 0) return { success: false, error: "Inwentaryzacja nie istnieje." };
+
     for (const item of items) {
       const dbItem = await db.select()
         .from(warehouseInventoryItems)
@@ -540,9 +560,14 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
   const session = await checkAuth('inventory:inventory');
   const userId = Number((session.user as any).id);
   const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
   
   try {
-    const inv = await db.select().from(warehouseInventories).where(eq(warehouseInventories.id, inventoryId)).limit(1);
+    const inv = await db.select().from(warehouseInventories).where(and(
+      eq(warehouseInventories.id, inventoryId),
+      eq(warehouseInventories.venueId, userVenueId),
+      eq(warehouseInventories.isDemo, userIsDemo)
+    )).limit(1);
     if (inv.length === 0) return { success: false, error: "Inwentaryzacja nie istnieje." };
     if (inv[0].status === 'submitted') return { success: false, error: "Ta inwentaryzacja została już zatwierdzona." };
     
@@ -563,19 +588,21 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
         .from(warehouseBatches)
         .where(and(
           eq(warehouseBatches.productId, productId),
-          eq(warehouseBatches.venueId, userVenueId)
+          eq(warehouseBatches.venueId, userVenueId),
+          eq(warehouseBatches.isDemo, userIsDemo)
         ))
         .orderBy(desc(warehouseBatches.id));
         
       if (activeBatches.length === 0) {
         // Jeśli nie było partii w lokalu, zainicjalizuj ją korektą
-        const isExpiry = (await db.select({ hasExpiry: warehouseProducts.hasExpiry }).from(warehouseProducts).where(eq(warehouseProducts.id, productId)).limit(1))[0]?.hasExpiry;
+        const isExpiry = (await db.select({ hasExpiry: warehouseProducts.hasExpiry }).from(warehouseProducts).where(and(eq(warehouseProducts.id, productId), eq(warehouseProducts.isDemo, userIsDemo))).limit(1))[0]?.hasExpiry;
         const [insertBatch] = await db.insert(warehouseBatches).values({
           productId,
           batchNumber: isExpiry ? 'PARTIA-KOREKTA' : 'DEFAULT',
           expiryDate: null,
           quantity: diff,
-          venueId: userVenueId
+          venueId: userVenueId,
+          isDemo: userIsDemo
         });
         
         await db.insert(warehouseHistory).values({
@@ -586,7 +613,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
           quantity: diff,
           source: `Inwentaryzacja ID: ${inventoryId}`,
           remarks: item.remarks || 'Inicjalizacja stanu w inwentaryzacji',
-          venueId: userVenueId
+          venueId: userVenueId,
+          isDemo: userIsDemo
         });
         continue;
       }
@@ -605,7 +633,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
           quantity: diff,
           source: `Inwentaryzacja ID: ${inventoryId}`,
           remarks: item.remarks || 'Korekta inwentaryzacyjna (nadwyżka)',
-          venueId: userVenueId
+          venueId: userVenueId,
+          isDemo: userIsDemo
         });
       } else {
         let remainingToSubtract = Math.abs(diff);
@@ -632,7 +661,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
             quantity: -subtractFromThis,
             source: `Inwentaryzacja ID: ${inventoryId}`,
             remarks: item.remarks || 'Korekta inwentaryzacyjna (niedobór)',
-            venueId: userVenueId
+            venueId: userVenueId,
+            isDemo: userIsDemo
           });
           
           remainingToSubtract -= subtractFromThis;
@@ -652,7 +682,8 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
             quantity: -remainingToSubtract,
             source: `Inwentaryzacja ID: ${inventoryId}`,
             remarks: item.remarks || 'Korekta inwentaryzacyjna (niedobór poniżej zera)',
-            venueId: userVenueId
+            venueId: userVenueId,
+            isDemo: userIsDemo
           });
         }
       }
@@ -660,7 +691,11 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
     
     await db.update(warehouseInventories)
       .set({ status: 'submitted' })
-      .where(eq(warehouseInventories.id, inventoryId));
+      .where(and(
+        eq(warehouseInventories.id, inventoryId),
+        eq(warehouseInventories.venueId, userVenueId),
+        eq(warehouseInventories.isDemo, userIsDemo)
+      ));
       
     const todayStr = new Date().toISOString().split('T')[0];
     const execUser = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -677,6 +712,7 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
         .where(and(
           eq(shiftTasks.date, todayStr),
           eq(shiftTasks.venueId, userVenueId),
+          eq(shiftTasks.isDemo, userIsDemo),
           sql`title LIKE '%Inwentaryzacja wybiórcza%'`
         ));
     } else if (inv[0].type === 'full') {
@@ -690,6 +726,7 @@ export async function submitInventoryAction(inventoryId: number, items: { produc
         .where(and(
           eq(shiftTasks.date, todayStr),
           eq(shiftTasks.venueId, userVenueId),
+          eq(shiftTasks.isDemo, userIsDemo),
           sql`title LIKE '%Cotygodniowa pełna inwentaryzacja%'`
         ));
     }
@@ -1213,9 +1250,15 @@ export async function createStockTransferAction(
 export async function dispatchStockTransferAction(transferId: number) {
   const session = await checkAuth('inventory:manage');
   const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   return await runTransaction(async (tx) => {
-    const existing = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, transferId)).limit(1);
+    const existing = await tx.select().from(stockTransfers).where(and(
+      eq(stockTransfers.id, transferId),
+      eq(stockTransfers.isDemo, userIsDemo),
+      eq(stockTransfers.sourceVenueId, userVenueId)
+    )).limit(1);
     if (existing.length === 0) return { success: false, error: "Transfer nie istnieje." };
 
     const trf = existing[0];
@@ -1226,7 +1269,8 @@ export async function dispatchStockTransferAction(transferId: number) {
     // 1. Zdejmij stan ze źródłowego lokalu
     const sourceBatch = await tx.select().from(warehouseBatches).where(and(
       eq(warehouseBatches.productId, trf.productId),
-      eq(warehouseBatches.venueId, trf.sourceVenueId)
+      eq(warehouseBatches.venueId, trf.sourceVenueId),
+      eq(warehouseBatches.isDemo, userIsDemo)
     )).limit(1);
 
     if (sourceBatch.length > 0 && sourceBatch[0].quantity >= trf.sentQuantity) {
@@ -1255,7 +1299,7 @@ export async function dispatchStockTransferAction(transferId: number) {
     // 3. Zmiana stanu na DISPATCHED
     await tx.update(stockTransfers)
       .set({ status: 'dispatched', sentAt: new Date() })
-      .where(eq(stockTransfers.id, transferId));
+      .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.sourceVenueId, userVenueId)));
 
     return { success: true };
   });
@@ -1269,9 +1313,15 @@ export async function receiveStockTransferAction(
 ) {
   const session = await checkAuth('inventory:manage');
   const userId = Number((session.user as any).id);
+  const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   return await runTransaction(async (tx) => {
-    const existing = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, transferId)).limit(1);
+    const existing = await tx.select().from(stockTransfers).where(and(
+      eq(stockTransfers.id, transferId),
+      eq(stockTransfers.isDemo, userIsDemo),
+      eq(stockTransfers.targetVenueId, userVenueId)
+    )).limit(1);
     if (existing.length === 0) return { success: false, error: "Transfer nie istnieje." };
 
     const trf = existing[0];
@@ -1285,7 +1335,8 @@ export async function receiveStockTransferAction(
     // 1. Zwiększ stan w docelowym lokalu
     const targetBatch = await tx.select().from(warehouseBatches).where(and(
       eq(warehouseBatches.productId, trf.productId),
-      eq(warehouseBatches.venueId, trf.targetVenueId)
+      eq(warehouseBatches.venueId, trf.targetVenueId),
+      eq(warehouseBatches.isDemo, userIsDemo)
     )).limit(1);
 
     if (targetBatch.length > 0) {
@@ -1344,7 +1395,7 @@ export async function receiveStockTransferAction(
       status: finalStatus,
       receivedBy: userId,
       receivedAt: new Date()
-    }).where(eq(stockTransfers.id, transferId));
+    }).where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.targetVenueId, userVenueId)));
 
     return { success: true, discrepancy };
   });
