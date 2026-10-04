@@ -1,10 +1,11 @@
 'use server';
 
 import { db } from "@/db";
-import { availability } from "@/db/schema";
+import { availability, settings } from "@/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
+import { availabilitySaveSchema, parseOrError } from "@/lib/validation";
 
 export interface AvailabilityEntry {
   id?: number;
@@ -13,6 +14,21 @@ export interface AvailabilityEntry {
   status: 'available' | 'unavailable';
   statusManager: 'pending' | 'accepted' | 'rejected';
   remarks?: string | null;
+}
+
+async function getAvailabilityLockDay(): Promise<number> {
+  try {
+    const rows = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'cron_availability_lock_day'))
+      .limit(1);
+    const day = Number(rows[0]?.value ?? 15);
+    if (!Number.isFinite(day) || day < 1 || day > 28) return 15;
+    return day;
+  } catch {
+    return 15;
+  }
 }
 
 export async function checkIsLocked(targetDateStr: string, userRole: string) {
@@ -26,6 +42,7 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
   const currentDay = now.getDate();
+  const lockDay = await getAvailabilityLockDay();
   
   const monthsDiff = (targetYear - currentYear) * 12 + (targetMonth - currentMonth);
   
@@ -34,21 +51,36 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
   }
   
   if (monthsDiff === 1) {
-    return currentDay > 15;
+    return currentDay > lockDay;
   }
   
   return false;
 }
 
 export async function getAvailability(userId: number, year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, data: [], error: "Brak autoryzacji." };
+  }
+
+  const sessionUserId = Number((session.user as any).id);
+  const role = (session.user as any).role;
+  const canViewOthers =
+    role === 'owner' ||
+    role === 'manager' ||
+    hasPermission(session.user, 'schedule:edit');
+
+  if (!canViewOthers && userId !== sessionUserId) {
+    return { success: false, data: [], error: "Brak uprawnień do podglądu dyspozycyjności innego pracownika." };
+  }
+
   const monthStr = String(month).padStart(2, '0');
   const lastDay = new Date(year, month, 0).getDate();
   const startDate = `${year}-${monthStr}-01`;
   const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
   
   try {
-    const session = await auth();
-    const userIsDemo = (session?.user as any)?.isDemo === true;
+    const userIsDemo = (session.user as any)?.isDemo === true;
 
     const results = await db
       .select()
@@ -73,16 +105,22 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
   if (!session?.user) {
     return { success: false, error: "Brak autoryzacji." };
   }
+
+  const parsed = parseOrError(availabilitySaveSchema, { userId, dateStr, status, remarks });
+  if (!parsed.success) return { success: false, error: parsed.error };
   
   const userRole = (session.user as any).role;
   const loggedUserId = Number((session.user as any).id);
-  if (userId !== loggedUserId && userRole !== 'owner' && userRole !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
+  if (parsed.data.userId !== loggedUserId && userRole !== 'owner' && userRole !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
     return { success: false, error: "Brak uprawnień do edycji dyspozycyjności innych pracowników." };
   }
   
-  const isLocked = await checkIsLocked(dateStr, userRole);
+  const { userId: targetUserId, dateStr: targetDate, status: targetStatus, remarks: targetRemarks } = parsed.data;
+
+  const isLocked = await checkIsLocked(targetDate, userRole);
   if (isLocked) {
-    return { success: false, error: "Edycja dyspozycyjności na ten okres została zablokowana (minął 15. dzień miesiąca)." };
+    const lockDay = await getAvailabilityLockDay();
+    return { success: false, error: `Edycja dyspozycyjności na ten okres została zablokowana (minął ${lockDay}. dzień miesiąca).` };
   }
   
   try {
@@ -91,8 +129,9 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
       .from(availability)
       .where(
         and(
-          eq(availability.userId, userId),
-          eq(availability.date, dateStr)
+          eq(availability.userId, targetUserId),
+          eq(availability.date, targetDate),
+          eq(availability.isDemo, (session.user as any).isDemo === true)
         )
       )
       .limit(1);
@@ -100,14 +139,14 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
     if (existing.length > 0) {
       await db
         .update(availability)
-        .set({ status, remarks, statusManager: 'pending', updatedAt: new Date() })
+        .set({ status: targetStatus, remarks: targetRemarks, statusManager: 'pending', updatedAt: new Date() })
         .where(eq(availability.id, existing[0].id));
     } else {
       await db.insert(availability).values({
-        userId,
-        date: dateStr,
-        status,
-        remarks,
+        userId: targetUserId,
+        date: targetDate,
+        status: targetStatus,
+        remarks: targetRemarks,
         statusManager: 'pending',
         isDemo: (session.user as any).isDemo === true
       });
@@ -140,12 +179,19 @@ export async function reviewAvailability(
       await db
         .update(availability)
         .set({ statusManager, updatedAt: new Date() })
-        .where(eq(availability.id, id));
+        .where(and(
+          eq(availability.id, id),
+          eq(availability.isDemo, (session.user as any).isDemo === true)
+        ));
     } else {
       const existing = await db
         .select()
         .from(availability)
-        .where(and(eq(availability.userId, targetUserId), eq(availability.date, dateStr)))
+        .where(and(
+          eq(availability.userId, targetUserId),
+          eq(availability.date, dateStr),
+          eq(availability.isDemo, (session.user as any).isDemo === true)
+        ))
         .limit(1);
 
       if (existing.length > 0) {

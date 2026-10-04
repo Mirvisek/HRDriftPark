@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { timesheets, users, salaryHistory } from "@/db/schema";
 import { eq, and, gte, lte, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
-import { logAuditEvent } from "./userActions";
+import { logAuditEvent } from "@/lib/audit";
 import { hasPermission } from "@/lib/permissions";
 import { canTransition } from "@/lib/workflow";
 import { executeIdempotentAction, runTransaction } from "@/lib/transaction";
@@ -66,11 +66,24 @@ export async function checkTimesheetLocked(year: number, month: number, user: an
 }
 
 export async function getTimesheets(userId: number, year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, data: [], estimatedPayout: 0, error: "Brak autoryzacji." };
+  }
+
+  const sessionUserId = Number((session.user as any).id);
+  const canViewAll =
+    hasPermission(session.user, 'timesheet:view_all') ||
+    hasPermission(session.user, 'timesheet:edit_all');
+
+  if (!canViewAll && userId !== sessionUserId) {
+    return { success: false, data: [], estimatedPayout: 0, error: "Brak uprawnień do podglądu karty innego pracownika." };
+  }
+
   const { startDate, endDate } = getMonthDateRange(year, month);
 
   try {
-    const session = await auth();
-    const userIsDemo = (session?.user as any)?.isDemo === true;
+    const userIsDemo = (session.user as any)?.isDemo === true;
 
     const results = await db
       .select()
@@ -300,7 +313,12 @@ export async function getAllTimesheets(year: number, month: number) {
       })
       .from(timesheets)
       .innerJoin(users, eq(timesheets.userId, users.id))
-      .where(and(gte(timesheets.date, startDate), lte(timesheets.date, endDate)));
+      .where(and(
+        gte(timesheets.date, startDate),
+        lte(timesheets.date, endDate),
+        eq(timesheets.isDemo, (session.user as any).isDemo === true),
+        eq(users.isDemo, (session.user as any).isDemo === true)
+      ));
 
     return { success: true, data: results as TimesheetEntry[] };
   } catch (e) {

@@ -4,7 +4,8 @@ import { db } from "@/db";
 import { workSchedule, availability, users, settings } from "@/db/schema";
 import { eq, and, gte, lte, like } from "drizzle-orm";
 import { auth } from "@/auth";
-import { sendSystemNotification, logAuditEvent } from "./userActions";
+import { sendSystemNotification } from "./userActions";
+import { logAuditEvent } from "@/lib/audit";
 import { sendPushNotification, getFormattedNotification } from "@/lib/webPush";
 import { hasPermission } from "@/lib/permissions";
 
@@ -25,14 +26,19 @@ export interface ScheduleEntry {
 }
 
 export async function getWorkSchedule(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, data: [], error: "Brak autoryzacji." };
+  }
+
   const monthStr = String(month).padStart(2, '0');
   const lastDay = new Date(year, month, 0).getDate();
   const startDate = `${year}-${monthStr}-01`;
   const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
   try {
-    const session = await auth();
-    const userIsDemo = (session?.user as any)?.isDemo === true;
+    const userIsDemo = (session.user as any)?.isDemo === true;
+    const userVenueId = Number((session.user as any)?.venueId) || 1;
 
     const results = await db
       .select({
@@ -53,7 +59,8 @@ export async function getWorkSchedule(year: number, month: number) {
         and(
           gte(workSchedule.date, startDate),
           lte(workSchedule.date, endDate),
-          eq(workSchedule.isDemo, userIsDemo)
+          eq(workSchedule.isDemo, userIsDemo),
+          eq(workSchedule.venueId, userVenueId)
         )
       );
 
@@ -190,13 +197,18 @@ export async function saveWorkScheduleEntry(
 
   const executorId = session.user ? Number((session.user as any).id) : null;
   const userIsDemo = (session.user as any).isDemo === true;
+  const userVenueId = Number((session.user as any).venueId) || 1;
 
   try {
     // Sprawdź czy wpis już istnieje
     const existing = await db
       .select()
       .from(workSchedule)
-      .where(and(eq(workSchedule.date, dateStr), eq(workSchedule.isDemo, userIsDemo)))
+      .where(and(
+        eq(workSchedule.date, dateStr),
+        eq(workSchedule.isDemo, userIsDemo),
+        eq(workSchedule.venueId, userVenueId)
+      ))
       .limit(1);
 
     // Optymistyczne blokowanie i logowanie
@@ -243,6 +255,7 @@ export async function saveWorkScheduleEntry(
         closeTime,
         isClosed,
         isDemo: userIsDemo,
+        venueId: userVenueId,
         version: 1
       });
 
@@ -361,6 +374,8 @@ export async function generateSchedule(year: number, month: number) {
     return { success: false, error: "Brak uprawnień." };
   }
 
+  const userIsDemo = (session.user as any).isDemo === true;
+  const userVenueId = Number((session.user as any).venueId) || 1;
   const monthStr = String(month).padStart(2, '0');
   const daysInMonth = new Date(year, month, 0).getDate();
 
@@ -373,7 +388,12 @@ export async function generateSchedule(year: number, month: number) {
     const existingSchedule = await db
       .select()
       .from(workSchedule)
-      .where(and(gte(workSchedule.date, startDate), lte(workSchedule.date, endDate)))
+      .where(and(
+        gte(workSchedule.date, startDate),
+        lte(workSchedule.date, endDate),
+        eq(workSchedule.isDemo, userIsDemo),
+        eq(workSchedule.venueId, userVenueId)
+      ))
       .limit(11);
 
     if (existingSchedule.length > 10) {
@@ -387,17 +407,25 @@ export async function generateSchedule(year: number, month: number) {
         and(
           gte(availability.date, startDate),
           lte(availability.date, endDate),
-          eq(availability.status, 'available')
+          eq(availability.status, 'available'),
+          eq(availability.isDemo, userIsDemo)
         )
       );
 
-    // Pobierz wszystkich użytkowników
-    const allUsers = await db.select({ id: users.id, name: users.displayName }).from(users);
+    // Pobierz użytkowników tego samego trybu (i preferencyjnie tego samego lokalu)
+    const allUsers = await db
+      .select({ id: users.id, name: users.displayName, venueId: users.venueId })
+      .from(users)
+      .where(eq(users.isDemo, userIsDemo));
+    const venueUserIds = new Set(
+      allUsers.filter((u) => (u.venueId || 1) === userVenueId).map((u) => u.id)
+    );
     const userMap = new Map(allUsers.map(u => [u.id, u.name]));
 
-    // Grupuj dostępność według dat
+    // Grupuj dostępność według dat — tylko pracownicy tego lokalu
     const dateAvailMap: Record<string, number[]> = {};
     availabilities.forEach(av => {
+      if (!venueUserIds.has(av.userId)) return;
       if (!dateAvailMap[av.date]) dateAvailMap[av.date] = [];
       dateAvailMap[av.date].push(av.userId);
     });
@@ -427,7 +455,11 @@ export async function generateSchedule(year: number, month: number) {
       const existing = await db
         .select()
         .from(workSchedule)
-        .where(eq(workSchedule.date, dateStr))
+        .where(and(
+          eq(workSchedule.date, dateStr),
+          eq(workSchedule.isDemo, userIsDemo),
+          eq(workSchedule.venueId, userVenueId)
+        ))
         .limit(1);
 
       if (existing.length > 0) {
@@ -441,7 +473,8 @@ export async function generateSchedule(year: number, month: number) {
           leadUserId,
           supportUserId,
           remarks,
-          isDemo: false
+          isDemo: userIsDemo,
+          venueId: userVenueId
         });
       }
 
@@ -467,6 +500,11 @@ export async function generateSchedule(year: number, month: number) {
 }
 
 export async function checkSchedulePublishedAction(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, published: false, error: "Brak autoryzacji." };
+  }
+
   const monthStr = String(month).padStart(2, '0');
   const key = `schedule_published_${year}_${monthStr}`;
 

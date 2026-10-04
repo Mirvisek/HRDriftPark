@@ -61,7 +61,11 @@ export async function getUserGroupsAction() {
     return { success: true, data: groups };
   } catch (e: any) {
     console.error("Błąd pobierania grup użytkowników:", e);
-    return { success: true, data: DEFAULT_SYSTEM_GROUPS };
+    const message = String(e?.message || "");
+    if (message.includes("Brak autoryzacji") || message.includes("Brak uprawnień")) {
+      return { success: false, data: [], error: message };
+    }
+    return { success: false, data: [], error: "Błąd bazy danych przy pobieraniu grup." };
   }
 }
 

@@ -29,7 +29,9 @@ export async function sendMail({ to, subject, html }: { to: string; subject: str
   const port = Number(portStr);
   const secure = secureStr === 'true';
 
-  const emailLogContent = `
+  // Log emails locally only outside production (reset links / temp passwords).
+  if (process.env.NODE_ENV !== 'production') {
+    const emailLogContent = `
 ========================================================================
 DATA: ${new Date().toLocaleString('pl-PL')}
 DO: ${to}
@@ -39,22 +41,26 @@ ${html}
 ========================================================================
 \n`;
 
-  // Zawsze logujemy wysłany e-mail do pliku lokalnego w celach deweloperskich/rezerwowych
-  try {
-    const logDir = path.join(process.cwd(), 'scratch');
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
+    try {
+      const logDir = path.join(process.cwd(), 'scratch');
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      fs.appendFileSync(path.join(logDir, 'sent_emails.log'), emailLogContent);
+      console.log(`[Email Log] Zapisano e-mail do scratch/sent_emails.log`);
+    } catch (err) {
+      console.error('Błąd zapisu logu e-mail:', err);
     }
-    fs.appendFileSync(path.join(logDir, 'sent_emails.log'), emailLogContent);
-    console.log(`[Email Log] Zapisano e-mail do scratch/sent_emails.log`);
-  } catch (err) {
-    console.error('Błąd zapisu logu e-mail:', err);
   }
 
   // Jeśli brak skonfigurowanego serwera SMTP, kończymy na logowaniu lokalnym (przydatne w środowisku deweloperskim)
   if (!host || !user || !pass) {
-    console.log(`[SMTP] Brak pełnej konfiguracji SMTP w bazie. E-mail został zapisany lokalnie w scratch/sent_emails.log.`);
-    return { success: true, loggedLocally: true };
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[SMTP] Brak pełnej konfiguracji SMTP w bazie. E-mail został zapisany lokalnie w scratch/sent_emails.log.`);
+      return { success: true, loggedLocally: true };
+    }
+    console.error('[SMTP] Brak konfiguracji SMTP w produkcji — e-mail nie został wysłany.');
+    return { success: false, loggedLocally: false };
   }
 
   try {

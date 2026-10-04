@@ -9,6 +9,8 @@ declare module "next-auth" {
       isDemo: boolean;
       venueId?: number | null;
       mustChangePassword?: boolean;
+      permissions?: string | string[];
+      sessionVersion?: number;
     } & DefaultSession["user"];
   }
 
@@ -18,6 +20,9 @@ declare module "next-auth" {
     isDemo: boolean;
     venueId?: number | null;
     mustChangePassword?: boolean;
+    permissions?: string | string[];
+    sessionVersion?: number;
+    rememberMe?: string;
   }
 }
 
@@ -28,5 +33,9 @@ declare module "next-auth/jwt" {
     isDemo: boolean;
     venueId?: number | null;
     mustChangePassword?: boolean;
+    permissions?: string | string[];
+    sessionVersion?: number;
+    rememberMe?: string;
+    lastAuthzCheck?: number;
   }
 }

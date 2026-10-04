@@ -411,6 +411,9 @@ async function main() {
     console.error("Błąd podczas tworzenia tabeli 'user_groups':", e.cause?.message || e.message);
   }
 
+  // 15b. Session versioning for JWT invalidation
+  await addColumnSafely('users', '`session_version` INT NOT NULL DEFAULT 0');
+
   // 16. Indeksy wydajnościowe
   console.log("Dodawanie indeksów wydajnościowych...");
   await addIndexSafely('timesheets', 'timesheets_user_date_idx', '`user_id`, `date`');

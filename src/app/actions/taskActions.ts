@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { taskTemplates, shiftTasks, users } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 
 /**
  * Pobiera zadania na określony dzień.
@@ -75,8 +76,8 @@ export async function getTasksForDateAction(dateStr: string) {
 
     // Automatycznie losuj wybiórczą inwentaryzację (Spot Check) na ten dzień w tym lokalu
     try {
-      const { triggerDailySpotCheckAction } = await import("./inventoryActions");
-      await triggerDailySpotCheckAction(dateStr, userVenueId, userIsDemo);
+      const { runDailySpotCheck } = await import("@/lib/spotCheck");
+      await runDailySpotCheck(dateStr, userVenueId, userIsDemo, Number((session.user as any).id) || 1);
     } catch (spotErr) {
       console.error("Błąd podczas automatycznego losowania Spot Check:", spotErr);
     }
@@ -112,6 +113,10 @@ export async function addAdditionalTaskAction(
   const userVenueId = (session.user as any).venueId || 1;
   const userIsDemo = (session.user as any).isDemo === true;
 
+  if (!hasPermission(session.user, 'tasks:edit')) {
+    return { success: false, error: "Brak uprawnień do dodawania zadań." };
+  }
+
   if (!title.trim()) {
     return { success: false, error: "Tytuł zadania nie może być pusty." };
   }
@@ -144,8 +149,16 @@ export async function toggleTaskStatusAction(taskId: number, isCompleted: boolea
 
   const userId = Number((session.user as any).id);
   const userDisplayName = session.user.name || 'Pracownik';
+  const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
 
   try {
+    const scope = and(
+      eq(shiftTasks.id, taskId),
+      eq(shiftTasks.venueId, userVenueId),
+      eq(shiftTasks.isDemo, userIsDemo)
+    );
+
     if (isCompleted) {
       await db
         .update(shiftTasks)
@@ -155,7 +168,7 @@ export async function toggleTaskStatusAction(taskId: number, isCompleted: boolea
           completedByName: userDisplayName,
           completedAt: new Date()
         })
-        .where(eq(shiftTasks.id, taskId));
+        .where(scope);
     } else {
       await db
         .update(shiftTasks)
@@ -165,7 +178,7 @@ export async function toggleTaskStatusAction(taskId: number, isCompleted: boolea
           completedByName: null,
           completedAt: null
         })
-        .where(eq(shiftTasks.id, taskId));
+        .where(scope);
     }
 
     console.log(`[Tasks] Zmiana statusu zadania ID ${taskId} na ${isCompleted ? 'ukończone' : 'do zrobienia'} przez ID ${userId}`);
@@ -188,10 +201,18 @@ export async function deleteAdditionalTaskAction(taskId: number) {
     return { success: false, error: "Brak uprawnień do usuwania zadań." };
   }
 
+  const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
+
   try {
     await db
       .delete(shiftTasks)
-      .where(and(eq(shiftTasks.id, taskId), eq(shiftTasks.type, 'additional')));
+      .where(and(
+        eq(shiftTasks.id, taskId),
+        eq(shiftTasks.type, 'additional'),
+        eq(shiftTasks.venueId, userVenueId),
+        eq(shiftTasks.isDemo, userIsDemo)
+      ));
 
     console.log(`[Tasks] Usunięto zadanie dodatkowe ID: ${taskId}`);
     return { success: true };
@@ -273,8 +294,15 @@ export async function deleteTaskTemplateAction(templateId: number) {
     return { success: false, error: "Brak uprawnień." };
   }
 
+  const userVenueId = (session.user as any).venueId || 1;
+  const userIsDemo = (session.user as any).isDemo === true;
+
   try {
-    await db.delete(taskTemplates).where(eq(taskTemplates.id, templateId));
+    await db.delete(taskTemplates).where(and(
+      eq(taskTemplates.id, templateId),
+      eq(taskTemplates.venueId, userVenueId),
+      eq(taskTemplates.isDemo, userIsDemo)
+    ));
     console.log(`[Tasks] Usunięto szablon zadania ID: ${templateId}`);
     return { success: true };
   } catch (e: any) {

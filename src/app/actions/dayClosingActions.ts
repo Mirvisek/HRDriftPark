@@ -1,8 +1,8 @@
 'use server';
 
 import { db } from "@/db";
-import { operationalDayClosing, shiftCashReconciliations, timesheets, shiftChecklists, shiftTasks } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { operationalDayClosing, shiftCashReconciliations, timesheets, shiftChecklists, shiftTasks, users } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { auth } from "@/auth";
 import { runTransaction } from "@/lib/transaction";
 import { hasPermission } from "@/lib/permissions";
@@ -73,9 +73,25 @@ export async function closeOperationalDayAction(
       return { success: false, error: "Dzień operacyjny na tę datę został już zamknięty." };
     }
 
-    // 2. Pobierz migawkę operacyjną (Snapshot)
-    const cashRecs = await tx.select().from(shiftCashReconciliations).where(and(eq(shiftCashReconciliations.date, dateStr), eq(shiftCashReconciliations.venueId, venueId)));
-    const timesheetRecs = await tx.select().from(timesheets).where(eq(timesheets.date, dateStr));
+    // 2. Pobierz migawkę operacyjną (Snapshot) — scoped to venue users / demo
+    const venueUsers = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.venueId, venueId), eq(users.isDemo, isDemo)));
+    const venueUserIds = venueUsers.map((u) => u.id);
+
+    const cashRecs = await tx.select().from(shiftCashReconciliations).where(and(
+      eq(shiftCashReconciliations.date, dateStr),
+      eq(shiftCashReconciliations.venueId, venueId),
+      eq(shiftCashReconciliations.isDemo, isDemo)
+    ));
+    const timesheetRecs = venueUserIds.length > 0
+      ? await tx.select().from(timesheets).where(and(
+          eq(timesheets.date, dateStr),
+          eq(timesheets.isDemo, isDemo),
+          inArray(timesheets.userId, venueUserIds)
+        ))
+      : [];
     const checklistsRecs = await tx.select().from(shiftChecklists).where(and(eq(shiftChecklists.date, dateStr), eq(shiftChecklists.venueId, venueId)));
     const tasksRecs = await tx.select().from(shiftTasks).where(and(eq(shiftTasks.date, dateStr), eq(shiftTasks.venueId, venueId)));
 
@@ -88,14 +104,24 @@ export async function closeOperationalDayAction(
       tasksTotal: tasksRecs.length
     };
 
-    // 3. Zablokuj wszystkie powiązane wpisy RCP i kasy dla tego lokalu i dnia
-    await tx.update(timesheets)
-      .set({ status: 'locked', isLocked: true })
-      .where(eq(timesheets.date, dateStr));
+    // 3. Zablokuj wpisy RCP tylko pracowników tego lokalu oraz kasę lokalu
+    if (venueUserIds.length > 0) {
+      await tx.update(timesheets)
+        .set({ status: 'locked', isLocked: true })
+        .where(and(
+          eq(timesheets.date, dateStr),
+          eq(timesheets.isDemo, isDemo),
+          inArray(timesheets.userId, venueUserIds)
+        ));
+    }
 
     await tx.update(shiftCashReconciliations)
       .set({ status: 'locked' })
-      .where(and(eq(shiftCashReconciliations.date, dateStr), eq(shiftCashReconciliations.venueId, venueId)));
+      .where(and(
+        eq(shiftCashReconciliations.date, dateStr),
+        eq(shiftCashReconciliations.venueId, venueId),
+        eq(shiftCashReconciliations.isDemo, isDemo)
+      ));
 
     // 4. Zapisz wpis zamknięcia dnia
     const status = isForceClose ? 'closed_with_exceptions' : 'closed';

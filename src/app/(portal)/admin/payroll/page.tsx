@@ -112,7 +112,9 @@ export default function PayrollPage() {
         {/* Month Navigation & Excel Export */}
         <div className="flex items-center gap-3">
           <button
-            onClick={() => exportPayrollToExcel({ payrollList, monthName: monthNames[month], year })}
+            onClick={() => {
+              void exportPayrollToExcel({ payrollList, monthName: monthNames[month], year });
+            }}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-lg transition flex items-center gap-2 shadow cursor-pointer"
           >
             <span>📥</span> Eksportuj Zestawienie Excel

@@ -22,6 +22,11 @@ if (fs.existsSync(envPath)) {
 import bcrypt from "bcryptjs";
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== 'true') {
+    console.error('Seed zablokowany w produkcji. Ustaw ALLOW_PROD_SEED=true tylko świadomie.');
+    process.exit(1);
+  }
+
   // Dynamiczny import bazy i schematów dopiero PO załadowaniu zmiennych env
   const { db } = await import("./index");
   const { users, settings } = await import("./schema");
@@ -30,9 +35,9 @@ async function main() {
   console.log("Rozpoczynam seedowanie bazy danych...");
 
   // Hasło dla wszystkich kont testowych: drift123
-  const rawPassword = "drift123";
+  const rawPassword = process.env.SEED_PASSWORD || "drift123";
   const hashedPassword = await bcrypt.hash(rawPassword, 10);
-  console.log(`Wygenerowano hash hasła dla '${rawPassword}'`);
+  console.log(`Wygenerowano hash hasła seed (nie logujemy plaintext w prod).`);
 
   const testUsers = [
     {
@@ -130,13 +135,13 @@ async function main() {
         .limit(1);
 
       if (existing.length > 0) {
+        // Never overwrite passwords of existing users (security).
         await db
           .update(users)
           .set({
             firstName: u.firstName,
             lastName: u.lastName,
             displayName: u.displayName,
-            password: u.password,
             role: u.role,
             position: u.position,
             birthDate: u.birthDate,
@@ -144,7 +149,7 @@ async function main() {
             isDemo: u.isDemo
           })
           .where(eq(users.email, u.email));
-        console.log(`Zaktualizowano istniejącego użytkownika: ${u.email}`);
+        console.log(`Zaktualizowano metadane użytkownika (hasło bez zmian): ${u.email}`);
       } else {
         await db.insert(users).values(u);
         console.log(`Dodano nowego użytkownika: ${u.email}`);

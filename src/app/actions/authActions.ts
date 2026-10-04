@@ -2,11 +2,23 @@
 
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { eq, and, gt } from "drizzle-orm";
-import { auth, signOut } from "@/auth";
+import { eq, and, sql } from "drizzle-orm";
+import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
-import { sendMail, getSetting } from "@/lib/mail";
+import { sendMail } from "@/lib/mail";
+import {
+  generateResetToken,
+  getTrustedBaseUrl,
+  hashResetToken,
+} from "@/lib/authz";
+import { checkRateLimit } from "@/lib/rateLimit";
+
+async function bumpSessionVersion(userId: number) {
+  await db
+    .update(users)
+    .set({ sessionVersion: sql`${users.sessionVersion} + 1` })
+    .where(eq(users.id, userId));
+}
 
 /**
  * Zmienia hasło zalogowanego użytkownika (używane przy wymuszonej zmianie przy pierwszym logowaniu)
@@ -17,13 +29,14 @@ export async function changePasswordAction(password: string) {
     return { success: false, error: "Brak autoryzacji. Zaloguj się ponownie." };
   }
 
-  if (!password || password.length < 6) {
-    return { success: false, error: "Hasło musi mieć co najmniej 6 znaków." };
+  if (!password || password.length < 8) {
+    return { success: false, error: "Hasło musi mieć co najmniej 8 znaków." };
   }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+    const userId = Number((session.user as any).id);
+
     await db
       .update(users)
       .set({
@@ -31,6 +44,10 @@ export async function changePasswordAction(password: string) {
         mustChangePassword: false,
       })
       .where(eq(users.email, session.user.email));
+
+    if (userId) {
+      await bumpSessionVersion(userId);
+    }
 
     console.log(`[Auth] Pomyślnie zmieniono hasło (wymuszone) dla użytkownika: ${session.user.email}`);
     return { success: true };
@@ -50,9 +67,15 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
   }
 
   const successMessage = "Link do restartu hasła został wysłany! Jeżeli nie posiadasz konta skontaktuj się z administratorem!";
+  const rateKey = email.trim().toLowerCase();
+
+  const rate = checkRateLimit(`forgot-password:${rateKey}`, 5, 15 * 60 * 1000);
+  if (!rate.allowed) {
+    // Same generic message — do not reveal throttling details to attackers.
+    return { success: true, message: successMessage };
+  }
 
   try {
-    // Wyszukanie użytkownika o danym e-mailu i dacie urodzenia
     const dbUsers = await db
       .select()
       .from(users)
@@ -65,33 +88,26 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
       .limit(1);
 
     if (dbUsers.length === 0) {
-      // Bezpieczeństwo: Nie ujawniamy informacji czy email/data urodzenia są poprawne
-      console.log(`[Auth Forgot] Próba odzyskania hasła dla nieistniejącego konta lub z błędną datą urodzenia: ${email} (${birthDate})`);
+      console.log(`[Auth Forgot] Failed password recovery attempt for email hash bucket`);
       return { success: true, message: successMessage };
     }
 
     const user = dbUsers[0];
-    
-    // Generowanie bezpiecznego tokenu resetującego
-    const token = crypto.randomBytes(32).toString('hex');
-    const tokenExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 godzina ważności
+    const { token, tokenHash, expires } = generateResetToken();
 
-    // Zapis tokenu w bazie danych
     await db
       .update(users)
       .set({
-        resetToken: token,
-        resetTokenExpires: tokenExpires
+        resetToken: tokenHash,
+        resetTokenExpires: expires
       })
       .where(eq(users.id, user.id));
 
-    // Przygotowanie linku resetującego
-    const baseUrl = await getSetting('site_url', process.env.NEXTAUTH_URL || "http://localhost:3000");
+    const baseUrl = getTrustedBaseUrl();
     const resetLink = `${baseUrl}/reset-password?token=${token}`;
 
-    console.log(`[Auth Forgot] Wygenerowano token resetu dla ${email}. Wysyłanie e-maila...`);
+    console.log(`[Auth Forgot] Wygenerowano token resetu dla użytkownika ID ${user.id}. Wysyłanie e-maila...`);
 
-    // Przygotowanie treści e-maila
     const emailHtml = `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #0f0f0f; color: #e0e0e0; border-radius: 10px; border: 1px solid #ffaa00;">
         <h2 style="color: #ffd700; border-bottom: 1px solid #333; padding-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">Drift Park Extreme</h2>
@@ -102,13 +118,11 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
           <a href="${resetLink}" style="background-color: #ffaa00; color: #0f0f0f; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; text-transform: uppercase; font-size: 14px; box-shadow: 0 4px 12px rgba(255, 170, 0, 0.2);">Zresetuj hasło</a>
         </div>
         <p style="font-size: 12px; color: #555; border-top: 1px solid #222; padding-top: 15px;">
-          Jeżeli nie prosiłeś o resetowanie hasła, możesz zignorować tę wiadomość. Twoje obecne hasło pozostanie niezmienione.<br/>
-          Link: <a href="${resetLink}" style="color: #ffaa00; text-decoration: underline;">${resetLink}</a>
+          Jeżeli nie prosiłeś o resetowanie hasła, możesz zignorować tę wiadomość. Twoje obecne hasło pozostanie niezmienione.
         </p>
       </div>
     `;
 
-    // Wysyłka wiadomości
     await sendMail({
       to: user.email,
       subject: "Drift Park Extreme - Resetowanie Hasła",
@@ -130,17 +144,17 @@ export async function resetPasswordAction(token: string, password: string) {
     return { success: false, error: "Token oraz nowe hasło są wymagane." };
   }
 
-  if (password.length < 6) {
-    return { success: false, error: "Hasło musi mieć co najmniej 6 znaków." };
+  if (password.length < 8) {
+    return { success: false, error: "Hasło musi mieć co najmniej 8 znaków." };
   }
 
   try {
-    // Wyszukanie użytkownika z ważnym tokenem
     const now = new Date();
+    const tokenHash = hashResetToken(token);
     const dbUsers = await db
       .select()
       .from(users)
-      .where(eq(users.resetToken, token))
+      .where(eq(users.resetToken, tokenHash))
       .limit(1);
 
     if (dbUsers.length === 0) {
@@ -149,25 +163,24 @@ export async function resetPasswordAction(token: string, password: string) {
 
     const user = dbUsers[0];
 
-    // Sprawdzenie wygaśnięcia tokenu
-    if (user.resetTokenExpires && user.resetTokenExpires < now) {
+    if (!user.resetTokenExpires || user.resetTokenExpires < now) {
       return { success: false, error: "Token resetujący hasło wygasł. Poproś o nowy link." };
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Aktualizacja hasła i usunięcie tokenów
     await db
       .update(users)
       .set({
         password: hashedPassword,
         resetToken: null,
         resetTokenExpires: null,
-        mustChangePassword: false, // Użytkownik sam zresetował hasło, nie wymuszamy kolejnej zmiany
+        mustChangePassword: false,
+        sessionVersion: sql`${users.sessionVersion} + 1`,
       })
       .where(eq(users.id, user.id));
 
-    console.log(`[Auth Reset] Pomyślnie zresetowano hasło dla użytkownika o ID ${user.id} (${user.email})`);
+    console.log(`[Auth Reset] Pomyślnie zresetowano hasło dla użytkownika o ID ${user.id}`);
     return { success: true };
   } catch (e: any) {
     console.error("Błąd podczas resetowania hasła (Reset Password):", e);

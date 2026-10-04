@@ -35,6 +35,8 @@ export const users = mysqlTable('users', {
   groupId: int('group_id'),
   isDemo: boolean('is_demo').notNull().default(false),
   venueId: int('venue_id'),
+  /** Bumped to invalidate all existing JWTs for this user. */
+  sessionVersion: int('session_version').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
