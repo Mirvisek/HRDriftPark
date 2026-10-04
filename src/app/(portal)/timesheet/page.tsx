@@ -390,14 +390,16 @@ export default function TimesheetPage() {
 
           {isMounted && currentUser && (
             <button
-              onClick={() => exportTimesheetToExcel({
+              onClick={() => {
+                void exportTimesheetToExcel({
                 entries,
                 employeeName: currentUser.name,
                 position: currentUser.position,
                 monthName: monthNames[month],
                 year,
                 month
-              })}
+              });
+              }}
               className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 text-green-500" />

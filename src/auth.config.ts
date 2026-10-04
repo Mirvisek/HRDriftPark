@@ -22,7 +22,11 @@ function resolveAuthSecret(): string {
 }
 
 export const authConfig = {
-  trustHost: true,
+  // Prefer AUTH_URL/NEXTAUTH_URL in production; allow explicit AUTH_TRUST_HOST=true behind proxies.
+  trustHost:
+    process.env.AUTH_TRUST_HOST === "true" ||
+    Boolean(process.env.AUTH_URL || process.env.NEXTAUTH_URL) ||
+    process.env.NODE_ENV !== "production",
   providers: [], // Puste w konfiguracji bazowej (middleware nie wspiera Credentials)
   session: {
     strategy: "jwt",

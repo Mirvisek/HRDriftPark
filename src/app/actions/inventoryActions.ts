@@ -19,6 +19,7 @@ import { hasPermission } from "@/lib/permissions";
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { parseOrError, warehouseImportListSchema } from "@/lib/validation";
 
 // Pomocnik weryfikacji uprawnień na serwerze
 async function checkAuth(permission?: string) {
@@ -1056,6 +1057,11 @@ export async function importBulkProductsAction(productsList: Array<{
   const userVenueId = (session.user as any).venueId || 1;
   const userIsDemo = (session.user as any).isDemo === true;
 
+  const parsed = parseOrError(warehouseImportListSchema, productsList);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error };
+  }
+
   try {
     let successCount = 0;
     
@@ -1064,7 +1070,7 @@ export async function importBulkProductsAction(productsList: Array<{
     const categoryMap = new Map<string, number>();
     allCategories.forEach(c => categoryMap.set(c.name.toLowerCase().trim(), c.id));
 
-    for (const item of productsList) {
+    for (const item of parsed.data) {
       if (!item.name || !item.name.trim()) continue;
       const catNameNorm = (item.categoryName || 'Inne').trim();
       const catKey = catNameNorm.toLowerCase();

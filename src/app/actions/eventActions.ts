@@ -6,6 +6,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { auth } from "@/auth";
 import { recordOutboxEvent } from "@/lib/outbox";
 import { executeIdempotentAction } from "@/lib/transaction";
+import { eventDataSchema, parseOrError, positiveIntSchema } from "@/lib/validation";
 
 export interface EventData {
   id?: number;
@@ -70,6 +71,10 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
     return { success: false, error: "Brak uprawnień do edycji wydarzeń." };
   }
 
+  const parsed = parseOrError(eventDataSchema, eventData);
+  if (!parsed.success) return { success: false, error: parsed.error };
+  const valid = parsed.data;
+
   const userId = Number((session.user as any).id);
   const venueId = (session.user as any).venueId || 1;
   const isDemo = (session.user as any).isDemo === true;
@@ -77,55 +82,54 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
   return (await executeIdempotentAction<ActionResponse>(userId, 'createOrUpdateEvent', idempotencyKey, async (tx) => {
     const client = tx || db;
 
-    if (eventData.id) {
+    if (valid.id) {
       const updated = await client
         .update(events)
         .set({
-          title: eventData.title,
-          customerName: eventData.customerName,
-          customerPhone: eventData.customerPhone || null,
-          date: eventData.date,
-          startTime: eventData.startTime,
-          endTime: eventData.endTime,
-          participantsCount: Number(eventData.participantsCount) || 1,
-          totalAmount: Number(eventData.totalAmount) || 0,
-          depositPaid: Number(eventData.depositPaid) || 0,
-          notes: eventData.notes || null,
-          status: (eventData.status as any) || 'booked'
+          title: valid.title,
+          customerName: valid.customerName,
+          customerPhone: valid.customerPhone || null,
+          date: valid.date,
+          startTime: valid.startTime,
+          endTime: valid.endTime,
+          participantsCount: Number(valid.participantsCount) || 1,
+          totalAmount: Number(valid.totalAmount) || 0,
+          depositPaid: Number(valid.depositPaid) || 0,
+          notes: valid.notes || null,
+          status: (valid.status as any) || 'booked'
         })
         .where(and(
-          eq(events.id, eventData.id),
+          eq(events.id, valid.id),
           eq(events.venueId, venueId),
           eq(events.isDemo, isDemo)
         ));
 
-      // mysql2 update result: affectedRows
       const affected = (updated as any)?.[0]?.affectedRows ?? (updated as any)?.affectedRows;
       if (affected === 0) {
         return { success: false, error: "Nie znaleziono wydarzenia w Twoim lokalu." };
       }
 
-      await recordOutboxEvent('EVENT_UPDATED', { eventId: eventData.id, date: eventData.date, venueId }, client);
-      return { success: true, eventId: eventData.id };
+      await recordOutboxEvent('EVENT_UPDATED', { eventId: valid.id, date: valid.date, venueId }, client);
+      return { success: true, eventId: valid.id };
     } else {
       const [inserted] = await client.insert(events).values({
-        title: eventData.title,
-        customerName: eventData.customerName,
-        customerPhone: eventData.customerPhone || null,
-        date: eventData.date,
-        startTime: eventData.startTime,
-        endTime: eventData.endTime,
-        participantsCount: Number(eventData.participantsCount) || 1,
+        title: valid.title,
+        customerName: valid.customerName,
+        customerPhone: valid.customerPhone || null,
+        date: valid.date,
+        startTime: valid.startTime,
+        endTime: valid.endTime,
+        participantsCount: Number(valid.participantsCount) || 1,
         venueId,
         status: 'booked',
-        totalAmount: Number(eventData.totalAmount) || 0,
-        depositPaid: Number(eventData.depositPaid) || 0,
-        notes: eventData.notes || null,
+        totalAmount: Number(valid.totalAmount) || 0,
+        depositPaid: Number(valid.depositPaid) || 0,
+        notes: valid.notes || null,
         isDemo
       });
 
       const newId = (inserted as any).insertId || 0;
-      await recordOutboxEvent('EVENT_CREATED', { eventId: newId, title: eventData.title, date: eventData.date, venueId }, client);
+      await recordOutboxEvent('EVENT_CREATED', { eventId: newId, title: valid.title, date: valid.date, venueId }, client);
 
       return { success: true, eventId: newId };
     }
@@ -141,12 +145,15 @@ export async function deleteEventAction(eventId: number): Promise<ActionResponse
     return { success: false, error: "Brak uprawnień do usuwania wydarzeń." };
   }
 
+  const idCheck = parseOrError(positiveIntSchema, eventId);
+  if (!idCheck.success) return { success: false, error: idCheck.error };
+
   const venueId = (session.user as any).venueId || 1;
   const isDemo = (session.user as any).isDemo === true;
 
   try {
     await db.delete(events).where(and(
-      eq(events.id, eventId),
+      eq(events.id, idCheck.data),
       eq(events.venueId, venueId),
       eq(events.isDemo, isDemo)
     ));

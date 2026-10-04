@@ -1,6 +1,5 @@
 'use client';
 
-import * as XLSX from 'xlsx';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -335,86 +334,21 @@ export default function WarehousePage() {
     }
   };
 
-  // Obsługa importu z arkusza Excel / CSV
-  const handleFileImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Obsługa importu z arkusza Excel / CSV (exceljs — bez podatnego xlsx)
+  const handleFileImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImportStatus(null);
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-
-        if (rows.length < 2) {
-          setImportStatus({ type: 'error', text: 'Arkusz jest pusty lub nie posiada nagłówków.' });
-          return;
-        }
-
-        const headers = rows[0].map(h => String(h).trim().toLowerCase());
-        
-        // Pomocnik dopasowania indeksu kolumn
-        const colIndex = (names: string[]) => headers.findIndex(h => names.some(n => h.includes(n)));
-
-        const idxName = colIndex(['nazwa', 'name', 'artykuł', 'produkt']);
-        const idxCategory = colIndex(['kategoria', 'category', 'grupa']);
-        const idxUnit = colIndex(['jednostka', 'unit', 'miara']);
-        const idxSupplier = colIndex(['dostawca', 'supplier', 'producent']);
-        const idxSku = colIndex(['sku', 'kod', 'index']);
-        const idxLocation = colIndex(['lokalizacja', 'location', 'półka', 'miejsce']);
-        const idxInitialStock = colIndex(['stan', 'ilość', 'stock', 'ilośc', 'początkowy', 'ilosc']);
-        const idxMinStock = colIndex(['min', 'minimalny', 'ostrzegawczy']);
-        const idxMaxStock = colIndex(['max', 'maksymalny']);
-        const idxHasExpiry = colIndex(['ważności', 'expiry', 'data', 'waznosci']);
-        const idxAutoSpotCheck = colIndex(['wybiórcza', 'spot', 'auto', 'wybiorcza']);
-        const idxRemarks = colIndex(['uwagi', 'remarks', 'opis']);
-
-        if (idxName === -1 || idxCategory === -1) {
-          setImportStatus({ type: 'error', text: 'Nie odnaleziono wymaganych kolumn (Nazwa, Kategoria).' });
-          return;
-        }
-
-        const parsedProducts: any[] = [];
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || row.length === 0 || !row[idxName]) continue;
-
-          const parseBoolean = (val: any) => {
-            if (!val) return false;
-            const str = String(val).trim().toLowerCase();
-            return str === 'tak' || str === 'yes' || str === 'true' || str === '1' || str === 't';
-          };
-
-          parsedProducts.push({
-            name: String(row[idxName]).trim(),
-            categoryName: String(row[idxCategory]).trim(),
-            unit: idxUnit !== -1 && row[idxUnit] ? String(row[idxUnit]).trim() : 'szt.',
-            supplier: idxSupplier !== -1 && row[idxSupplier] ? String(row[idxSupplier]).trim() : '',
-            sku: idxSku !== -1 && row[idxSku] ? String(row[idxSku]).trim() : '',
-            location: idxLocation !== -1 && row[idxLocation] ? String(row[idxLocation]).trim() : '',
-            initialStock: idxInitialStock !== -1 && row[idxInitialStock] ? Number(row[idxInitialStock]) || 0 : 0,
-            minStock: idxMinStock !== -1 && row[idxMinStock] ? Number(row[idxMinStock]) || 0 : 0,
-            maxStock: idxMaxStock !== -1 && row[idxMaxStock] ? Number(row[idxMaxStock]) || 0 : 0,
-            hasExpiry: idxHasExpiry !== -1 ? parseBoolean(row[idxHasExpiry]) : false,
-            autoSpotCheck: idxAutoSpotCheck !== -1 ? parseBoolean(row[idxAutoSpotCheck]) : false,
-            remarks: idxRemarks !== -1 && row[idxRemarks] ? String(row[idxRemarks]).trim() : ''
-          });
-        }
-
-        if (parsedProducts.length === 0) {
-          setImportStatus({ type: 'error', text: 'Brak poprawnych rekordów produktów w pliku.' });
-        } else {
-          setImportPreview(parsedProducts);
-        }
-      } catch (err: any) {
-        setImportStatus({ type: 'error', text: 'Błąd przetwarzania pliku Excel: ' + err.message });
-      }
-    };
-    reader.readAsBinaryString(file);
+    try {
+      const { parseWarehouseImportFile } = await import('@/lib/warehouseImportParse');
+      const parsedProducts = await parseWarehouseImportFile(file);
+      setImportPreview(parsedProducts);
+    } catch (err: any) {
+      setImportStatus({ type: 'error', text: 'Błąd przetwarzania pliku: ' + (err.message || 'nieznany') });
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const handleExecuteImport = async () => {
@@ -2932,13 +2866,13 @@ export default function WarehousePage() {
               <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/10 rounded-xl hover:border-brand-gold/40 transition bg-[#121212]/50 relative group">
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.csv"
                   onChange={handleFileImportChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
                 <span className="text-2xl mb-1">📁</span>
                 <span className="text-xs text-[#a0a0a0] font-semibold group-hover:text-brand-gold transition">Wybierz plik Excel lub przeciągnij go tutaj</span>
-                <span className="text-[10px] text-[#555] mt-1 font-mono">xlsx, xls, csv</span>
+                <span className="text-[10px] text-[#555] mt-1 font-mono">xlsx, csv</span>
               </div>
 
               {importStatus && (

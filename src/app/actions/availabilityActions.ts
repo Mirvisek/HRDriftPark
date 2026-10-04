@@ -5,6 +5,7 @@ import { availability } from "@/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
+import { availabilitySaveSchema, parseOrError } from "@/lib/validation";
 
 export interface AvailabilityEntry {
   id?: number;
@@ -88,14 +89,19 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
   if (!session?.user) {
     return { success: false, error: "Brak autoryzacji." };
   }
+
+  const parsed = parseOrError(availabilitySaveSchema, { userId, dateStr, status, remarks });
+  if (!parsed.success) return { success: false, error: parsed.error };
   
   const userRole = (session.user as any).role;
   const loggedUserId = Number((session.user as any).id);
-  if (userId !== loggedUserId && userRole !== 'owner' && userRole !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
+  if (parsed.data.userId !== loggedUserId && userRole !== 'owner' && userRole !== 'manager' && !hasPermission(session.user, 'schedule:edit')) {
     return { success: false, error: "Brak uprawnień do edycji dyspozycyjności innych pracowników." };
   }
   
-  const isLocked = await checkIsLocked(dateStr, userRole);
+  const { userId: targetUserId, dateStr: targetDate, status: targetStatus, remarks: targetRemarks } = parsed.data;
+
+  const isLocked = await checkIsLocked(targetDate, userRole);
   if (isLocked) {
     return { success: false, error: "Edycja dyspozycyjności na ten okres została zablokowana (minął 15. dzień miesiąca)." };
   }
@@ -106,8 +112,8 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
       .from(availability)
       .where(
         and(
-          eq(availability.userId, userId),
-          eq(availability.date, dateStr)
+          eq(availability.userId, targetUserId),
+          eq(availability.date, targetDate)
         )
       )
       .limit(1);
@@ -115,14 +121,14 @@ export async function saveAvailability(userId: number, dateStr: string, status: 
     if (existing.length > 0) {
       await db
         .update(availability)
-        .set({ status, remarks, statusManager: 'pending', updatedAt: new Date() })
+        .set({ status: targetStatus, remarks: targetRemarks, statusManager: 'pending', updatedAt: new Date() })
         .where(eq(availability.id, existing[0].id));
     } else {
       await db.insert(availability).values({
-        userId,
-        date: dateStr,
-        status,
-        remarks,
+        userId: targetUserId,
+        date: targetDate,
+        status: targetStatus,
+        remarks: targetRemarks,
         statusManager: 'pending',
         isDemo: (session.user as any).isDemo === true
       });
