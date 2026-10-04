@@ -35,9 +35,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 role: user.role,
                 position: user.position,
                 mustChangePassword: user.mustChangePassword,
-                isDemo: false,
+                isDemo: user.isDemo === true,
                 venueId: user.venueId,
                 permissions: user.permissions,
+                sessionVersion: user.sessionVersion ?? 0,
                 rememberMe: credentials.rememberMe === "true" ? "true" : "false",
               };
             }

@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { pushSubscriptions, users } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { auth } from "@/auth";
 import { sendSystemNotification } from "./userActions";
 import { hasPermission } from "@/lib/permissions";
@@ -66,9 +66,17 @@ export async function removeSubscriptionAction(endpoint: string) {
     return { success: false, error: "Brak autoryzacji" };
   }
 
+  const userId = Number((session.user as any).id);
+  if (!userId || !endpoint) {
+    return { success: false, error: "Nieprawidłowe dane subskrypcji." };
+  }
+
   try {
-    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
-    console.log(`[Push Subscription] Usunięto subskrypcję dla endpointu: ${endpoint}`);
+    await db.delete(pushSubscriptions).where(and(
+      eq(pushSubscriptions.endpoint, endpoint),
+      eq(pushSubscriptions.userId, userId)
+    ));
+    console.log(`[Push Subscription] Usunięto subskrypcję użytkownika ID: ${userId}`);
     return { success: true };
   } catch (e: any) {
     console.error("[Push Subscription Error] Usuwanie:", e);
@@ -122,14 +130,15 @@ export async function sendCustomPushNotificationAction(
     const { sendPushNotification } = await import("@/lib/webPush");
 
     if (userId === 0) {
-      const allUsers = await db.select({ id: users.id }).from(users);
+      const userIsDemo = (session.user as any).isDemo === true;
+      const allUsers = await db.select({ id: users.id }).from(users).where(eq(users.isDemo, userIsDemo));
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       for (const u of allUsers) {
         await sendSystemNotification(u.id, message);
         await sendPushNotification(u.id, title, message, "/");
         await delay(100);
       }
-      console.log(`[Push Custom] Wysłano powiadomienie grupowe do wszystkich pracowników.`);
+      console.log(`[Push Custom] Wysłano powiadomienie grupowe do ${allUsers.length} pracowników.`);
       return { success: true, count: allUsers.length };
     } else {
       await sendSystemNotification(userId, message);

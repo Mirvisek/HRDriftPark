@@ -4,7 +4,8 @@ import { db } from "@/db";
 import { workSchedule, availability, users, settings } from "@/db/schema";
 import { eq, and, gte, lte, like } from "drizzle-orm";
 import { auth } from "@/auth";
-import { sendSystemNotification, logAuditEvent } from "./userActions";
+import { sendSystemNotification } from "./userActions";
+import { logAuditEvent } from "@/lib/audit";
 import { sendPushNotification, getFormattedNotification } from "@/lib/webPush";
 import { hasPermission } from "@/lib/permissions";
 
@@ -25,14 +26,18 @@ export interface ScheduleEntry {
 }
 
 export async function getWorkSchedule(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, data: [], error: "Brak autoryzacji." };
+  }
+
   const monthStr = String(month).padStart(2, '0');
   const lastDay = new Date(year, month, 0).getDate();
   const startDate = `${year}-${monthStr}-01`;
   const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
   try {
-    const session = await auth();
-    const userIsDemo = (session?.user as any)?.isDemo === true;
+    const userIsDemo = (session.user as any)?.isDemo === true;
 
     const results = await db
       .select({
@@ -467,6 +472,11 @@ export async function generateSchedule(year: number, month: number) {
 }
 
 export async function checkSchedulePublishedAction(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, published: false, error: "Brak autoryzacji." };
+  }
+
   const monthStr = String(month).padStart(2, '0');
   const key = `schedule_published_${year}_${monthStr}`;
 

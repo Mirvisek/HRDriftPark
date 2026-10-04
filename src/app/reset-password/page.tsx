@@ -37,8 +37,8 @@ function ResetPasswordForm() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Hasło musi składać się z co najmniej 6 znaków.');
+    if (password.length < 8) {
+      setError('Hasło musi składać się z co najmniej 8 znaków.');
       return;
     }
 

@@ -28,6 +28,10 @@ export interface ActionResponse {
   eventId?: number;
 }
 
+function canMutateEvents(role: string): boolean {
+  return role === 'owner' || role === 'manager' || role === 'technik';
+}
+
 export async function getEventsAction(dateStr?: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
@@ -61,6 +65,11 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
+  const role = (session.user as any).role || 'employee';
+  if (!canMutateEvents(role)) {
+    return { success: false, error: "Brak uprawnień do edycji wydarzeń." };
+  }
+
   const userId = Number((session.user as any).id);
   const venueId = (session.user as any).venueId || 1;
   const isDemo = (session.user as any).isDemo === true;
@@ -69,7 +78,7 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
     const client = tx || db;
 
     if (eventData.id) {
-      await client
+      const updated = await client
         .update(events)
         .set({
           title: eventData.title,
@@ -84,7 +93,17 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
           notes: eventData.notes || null,
           status: (eventData.status as any) || 'booked'
         })
-        .where(eq(events.id, eventData.id));
+        .where(and(
+          eq(events.id, eventData.id),
+          eq(events.venueId, venueId),
+          eq(events.isDemo, isDemo)
+        ));
+
+      // mysql2 update result: affectedRows
+      const affected = (updated as any)?.[0]?.affectedRows ?? (updated as any)?.affectedRows;
+      if (affected === 0) {
+        return { success: false, error: "Nie znaleziono wydarzenia w Twoim lokalu." };
+      }
 
       await recordOutboxEvent('EVENT_UPDATED', { eventId: eventData.id, date: eventData.date, venueId }, client);
       return { success: true, eventId: eventData.id };
@@ -117,8 +136,20 @@ export async function deleteEventAction(eventId: number): Promise<ActionResponse
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
 
+  const role = (session.user as any).role || 'employee';
+  if (!canMutateEvents(role)) {
+    return { success: false, error: "Brak uprawnień do usuwania wydarzeń." };
+  }
+
+  const venueId = (session.user as any).venueId || 1;
+  const isDemo = (session.user as any).isDemo === true;
+
   try {
-    await db.delete(events).where(eq(events.id, eventId));
+    await db.delete(events).where(and(
+      eq(events.id, eventId),
+      eq(events.venueId, venueId),
+      eq(events.isDemo, isDemo)
+    ));
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message };

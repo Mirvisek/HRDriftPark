@@ -352,7 +352,7 @@ export default function SettingsPage() {
       if (res.success) {
         setStatusMsg({ 
           type: 'success', 
-          text: `Zresetowano hasło dla ${displayName}. Nowe hasło tymczasowe to: ${res.tempPassword}. Przekaż je użytkownikowi lub poczekaj na wysyłkę e-mail.` 
+          text: `Zresetowano hasło dla ${displayName}. Hasło tymczasowe zostało wysłane e-mailem (nie jest pokazywane w panelu ze względów bezpieczeństwa).` 
         });
       } else {
         setStatusMsg({ type: 'error', text: res.error || 'Błąd resetowania hasła.' });

@@ -16,6 +16,7 @@ import {
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -31,11 +32,25 @@ async function checkAuth(permission?: string) {
 
 // Pomocnik zapisu przesłanego pliku na serwerze
 async function saveUploadedFile(file: File): Promise<string> {
+  const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
+  if (!allowedTypes.has(file.type)) {
+    throw new Error('Niedozwolony typ pliku. Dozwolone: JPG, PNG, WebP, PDF.');
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Plik nie może przekraczać 5 MB.');
+  }
+
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
-  
-  const ext = path.extname(file.name) || '.jpg';
-  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}${ext}`;
+
+  const extMap: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'application/pdf': '.pdf',
+  };
+  const ext = extMap[file.type] || '.bin';
+  const fileName = `${Date.now()}-${randomBytes(8).toString('hex')}${ext}`;
   const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'receipts');
   
   await fs.promises.mkdir(uploadDir, { recursive: true });
@@ -966,81 +981,29 @@ export async function getWarehouseHistoryAction(filters?: { productId?: number; 
 // SYSTEMOWE TRIGGEROWANIE WYBIÓRCZEJ INWENTARYZACJI (SPOT CHECK) PER LOKAL
 // -------------------------------------------------------------
 
-export async function triggerDailySpotCheckAction(dateStr: string, venueId: number, isDemo: boolean = false) {
+export async function triggerDailySpotCheckAction(dateStr: string, venueId?: number, isDemo?: boolean) {
+  const session = await checkAuth('inventory:manage');
+  const resolvedVenueId = venueId ?? ((session.user as any).venueId || 1);
+  const resolvedIsDemo = isDemo ?? ((session.user as any).isDemo === true);
+
+  // Non-owners may only trigger for their own venue/demo scope.
+  if ((session.user as any).role !== 'owner') {
+    if (resolvedVenueId !== ((session.user as any).venueId || 1)) {
+      return { success: false, error: "Brak uprawnień do innego lokalu." };
+    }
+    if (resolvedIsDemo !== ((session.user as any).isDemo === true)) {
+      return { success: false, error: "Brak uprawnień do wskazanego trybu demo." };
+    }
+  }
+
   try {
-    const existing = await db.select()
-      .from(warehouseInventories)
-      .where(and(
-        eq(warehouseInventories.type, 'spot'),
-        eq(warehouseInventories.venueId, venueId),
-        eq(warehouseInventories.isDemo, isDemo),
-        sql`DATE(created_at) = ${dateStr}`
-      ))
-      .limit(1);
-      
-    if (existing.length > 0) {
-      return { success: true, alreadyExists: true, inventoryId: existing[0].id };
-    }
-    
-    const spotCheckProducts = await db.select({
-      id: warehouseProducts.id,
-      name: warehouseProducts.name,
-      currentStock: sql<number>`COALESCE((SELECT SUM(quantity) FROM warehouse_batches WHERE product_id = ${warehouseProducts.id} AND venue_id = ${venueId} AND is_demo = ${isDemo ? 1 : 0}), 0)`
-    })
-    .from(warehouseProducts)
-    .where(and(
-      eq(warehouseProducts.status, 'active'),
-      eq(warehouseProducts.autoSpotCheck, true),
-      eq(warehouseProducts.isDemo, isDemo)
-    ));
-    
-    if (spotCheckProducts.length === 0) {
-      return { success: true, reason: "Brak produktów oznaczonych do automatycznej inwentaryzacji." };
-    }
-    
-    const shuffled = [...spotCheckProducts].sort(() => 0.5 - Math.random());
-    const selected = shuffled.slice(0, 3);
-    
-    const defaultAdmin = await db.select().from(users).where(and(
-      eq(users.role, 'owner'),
-      eq(users.venueId, venueId),
-      eq(users.isDemo, isDemo)
-    )).limit(1);
-    const systemUserId = defaultAdmin.length > 0 ? defaultAdmin[0].id : 1;
-    
-    const [insertInv] = await db.insert(warehouseInventories).values({
-      userId: systemUserId,
-      type: 'spot',
-      status: 'draft',
-      createdAt: new Date(dateStr + "T08:00:00"),
-      venueId,
-      isDemo
-    });
-    const inventoryId = (insertInv as any).insertId || 0;
-    
-    for (const p of selected) {
-      await db.insert(warehouseInventoryItems).values({
-        inventoryId,
-        productId: p.id,
-        systemStock: p.currentStock,
-        actualStock: null,
-        difference: null
-      });
-    }
-    
-    const productNames = selected.map(p => p.name).join(', ');
-    await db.insert(shiftTasks).values({
-      date: dateStr,
-      title: `[MAGAZYN] Inwentaryzacja wybiórcza: Sprawdź stan dla: ${productNames}`,
-      type: 'recurring',
-      priority: 'high',
-      isCompleted: false,
-      isDemo,
-      venueId
-    });
-    
-    console.log(`[SpotCheck] Wygenerowano automatyczną inwentaryzację ID: ${inventoryId} dla lokalu ID: ${venueId} na dzień ${dateStr}`);
-    return { success: true, inventoryId };
+    const { runDailySpotCheck } = await import("@/lib/spotCheck");
+    return await runDailySpotCheck(
+      dateStr,
+      resolvedVenueId,
+      resolvedIsDemo,
+      Number((session.user as any).id)
+    );
   } catch (e: any) {
     console.error("Błąd generowania inwentaryzacji wybiórczej:", e);
     return { success: false, error: e.message };

@@ -1,9 +1,10 @@
 'use server';
 
 import { db } from "@/db";
-import { users, notifications, auditLogs } from "@/db/schema";
-import { eq, ne, desc } from "drizzle-orm";
+import { users, notifications } from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 
 export interface UserEntry {
   id: number;
@@ -12,13 +13,17 @@ export interface UserEntry {
   role: 'owner' | 'manager' | 'employee' | 'technik';
   position: string;
   isDemo: boolean;
+  hourlyRate?: number;
 }
 
 export async function getEmployees() {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
   const userIsDemo = (session.user as any).isDemo === true;
-  
+  const canSeeRates =
+    hasPermission(session.user, 'payroll:view') ||
+    hasPermission(session.user, 'users:manage');
+
   try {
     const results = await db
       .select({
@@ -32,8 +37,14 @@ export async function getEmployees() {
       })
       .from(users)
       .where(eq(users.isDemo, userIsDemo));
-      
-    return { success: true, data: results };
+
+    const data: UserEntry[] = results.map((row) => {
+      if (canSeeRates) return row;
+      const { hourlyRate: _hidden, ...safe } = row;
+      return safe;
+    });
+
+    return { success: true, data };
   } catch (e) {
     console.error("Błąd pobierania pracowników:", e);
     return { success: false, data: [], error: "Błąd bazy danych przy pobieraniu pracowników" };
@@ -43,12 +54,28 @@ export async function getEmployees() {
 export async function sendSystemNotification(userId: number, message: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+
+  const role = (session.user as any).role;
+  const canNotify =
+    role === 'owner' ||
+    role === 'manager' ||
+    hasPermission(session.user, 'push:send') ||
+    hasPermission(session.user, 'schedule:edit');
+
+  if (!canNotify) {
+    return { success: false, error: "Brak uprawnień do wysyłania powiadomień." };
+  }
+
+  if (!Number.isInteger(userId) || userId <= 0 || typeof message !== 'string' || !message.trim()) {
+    return { success: false, error: "Nieprawidłowe dane powiadomienia." };
+  }
+
   const userIsDemo = (session.user as any).isDemo === true;
-  
+
   try {
     await db.insert(notifications).values({
       userId,
-      message,
+      message: message.trim().slice(0, 2000),
       isRead: false,
       isDemo: userIsDemo
     });
@@ -119,27 +146,5 @@ export async function getCurrentUserRateAction() {
     return { success: false, rate: 0 };
   } catch (e) {
     return { success: false, rate: 0 };
-  }
-}
-
-export async function logAuditEvent(
-  userId: number | null,
-  entityType: string,
-  entityId: number,
-  action: 'UPDATE' | 'DELETE' | 'INSERT' | 'CORRECTION' | 'TRANSITION',
-  oldValue: any,
-  newValue: any
-) {
-  try {
-    await db.insert(auditLogs).values({
-      userId,
-      entityType,
-      entityId,
-      action,
-      oldValue: oldValue ? JSON.stringify(oldValue) : null,
-      newValue: newValue ? JSON.stringify(newValue) : null,
-    });
-  } catch (e) {
-    console.error("[Audit Log Error] Failed to write audit log:", e);
   }
 }
