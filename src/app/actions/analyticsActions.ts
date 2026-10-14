@@ -1,8 +1,8 @@
 'use server';
 
 import { db } from "@/db";
-import { shiftCashReconciliations, timesheets, users, warehouseProducts, warehouseBatches } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { shiftCashReconciliations, timesheets, users, warehouseProducts } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import { hasPermission } from "@/lib/permissions";
 
@@ -28,21 +28,23 @@ export async function getOwnerAnalyticsAction() {
       .from(shiftCashReconciliations)
       .where(eq(shiftCashReconciliations.isDemo, isDemo));
 
-    // 2. Koszt pracy (Payroll)
-    const allUsers = await db.select().from(users).where(eq(users.isDemo, isDemo));
-    const allSheets = await db.select().from(timesheets).where(eq(timesheets.isDemo, isDemo));
+    const [laborRow] = await db
+      .select({
+        total: sql<number>`COALESCE(SUM(
+          (
+            CASE
+              WHEN TIME_TO_SEC(${timesheets.endTime}) > TIME_TO_SEC(${timesheets.startTime})
+              THEN TIME_TO_SEC(${timesheets.endTime}) - TIME_TO_SEC(${timesheets.startTime})
+              ELSE TIME_TO_SEC(${timesheets.endTime}) - TIME_TO_SEC(${timesheets.startTime}) + 86400
+            END
+          ) / 3600 * ${users.hourlyRate}
+        ), 0)`,
+      })
+      .from(timesheets)
+      .innerJoin(users, eq(timesheets.userId, users.id))
+      .where(eq(timesheets.isDemo, isDemo));
 
-    let totalLaborCost = 0;
-    allSheets.forEach(t => {
-      const u = allUsers.find(user => user.id === t.userId);
-      const [sh, sm] = t.startTime.split(':').map(Number);
-      const [eh, em] = t.endTime.split(':').map(Number);
-      let diffSec = (eh * 3600 + em * 60) - (sh * 3600 + sm * 60);
-      if (diffSec <= 0) diffSec += 86400;
-
-      const rate = u ? u.hourlyRate : 0;
-      totalLaborCost += (diffSec / 3600) * rate;
-    });
+    const totalLaborCost = Number(laborRow?.total || 0);
 
     // 3. Stany magazynowe
     const stockStats = await db
@@ -67,6 +69,7 @@ export async function getOwnerAnalyticsAction() {
       }
     };
   } catch (e: any) {
-    return { success: false, error: e.message };
+    console.error("Błąd analityki:", e);
+    return { success: false, error: "Nie udało się policzyć analityki." };
   }
 }

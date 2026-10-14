@@ -1,9 +1,11 @@
 'use server';
 
 import { db } from "@/db";
-import { users, notifications, auditLogs } from "@/db/schema";
-import { eq, ne, desc } from "drizzle-orm";
+import { users, notifications } from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
+import { insertNotification } from "@/lib/notify";
 
 export interface UserEntry {
   id: number;
@@ -18,6 +20,7 @@ export async function getEmployees() {
   const session = await auth();
   if (!session?.user) return { success: false, data: [] };
   const userIsDemo = (session.user as any).isDemo === true;
+  const includeRate = hasPermission(session.user, "payroll:view");
   
   try {
     const results = await db
@@ -28,12 +31,21 @@ export async function getEmployees() {
         role: users.role,
         position: users.position,
         isDemo: users.isDemo,
-        hourlyRate: users.hourlyRate,
       })
       .from(users)
       .where(eq(users.isDemo, userIsDemo));
-      
-    return { success: true, data: results };
+
+    if (!includeRate) return { success: true, data: results };
+
+    const rates = await db
+      .select({ id: users.id, hourlyRate: users.hourlyRate })
+      .from(users)
+      .where(eq(users.isDemo, userIsDemo));
+    const rateById = new Map(rates.map((row) => [row.id, row.hourlyRate]));
+    return {
+      success: true,
+      data: results.map((row) => ({ ...row, hourlyRate: rateById.get(row.id) ?? 0 })),
+    };
   } catch (e) {
     console.error("Błąd pobierania pracowników:", e);
     return { success: false, data: [], error: "Błąd bazy danych przy pobieraniu pracowników" };
@@ -43,15 +55,18 @@ export async function getEmployees() {
 export async function sendSystemNotification(userId: number, message: string) {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  const role = (session.user as any).role;
+  const allowed = role === "owner" || role === "manager" || role === "technik"
+    || hasPermission(session.user, "schedule:edit")
+    || hasPermission(session.user, "push:send");
+  if (!allowed) return { success: false, error: "Brak uprawnień do wysyłania powiadomień." };
+  if (!userId || !message?.trim() || message.length > 500) {
+    return { success: false, error: "Nieprawidłowa treść powiadomienia." };
+  }
   const userIsDemo = (session.user as any).isDemo === true;
   
   try {
-    await db.insert(notifications).values({
-      userId,
-      message,
-      isRead: false,
-      isDemo: userIsDemo
-    });
+    await insertNotification(userId, message.trim(), userIsDemo);
     return { success: true };
   } catch (e) {
     console.error("Błąd zapisu powiadomienia:", e);
@@ -122,24 +137,3 @@ export async function getCurrentUserRateAction() {
   }
 }
 
-export async function logAuditEvent(
-  userId: number | null,
-  entityType: string,
-  entityId: number,
-  action: 'UPDATE' | 'DELETE' | 'INSERT' | 'CORRECTION' | 'TRANSITION',
-  oldValue: any,
-  newValue: any
-) {
-  try {
-    await db.insert(auditLogs).values({
-      userId,
-      entityType,
-      entityId,
-      action,
-      oldValue: oldValue ? JSON.stringify(oldValue) : null,
-      newValue: newValue ? JSON.stringify(newValue) : null,
-    });
-  } catch (e) {
-    console.error("[Audit Log Error] Failed to write audit log:", e);
-  }
-}

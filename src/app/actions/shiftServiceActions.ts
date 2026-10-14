@@ -5,7 +5,7 @@ import { activeShifts, timesheets, workSchedule, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { auth } from "@/auth";
 import { AnomalyEngine } from "@/services/anomalyEngine";
-import { logAuditEvent } from "./userActions";
+import { logAuditEvent } from "@/lib/audit";
 import { 
   ShiftRole, 
   SHIFT_ROLE_LABELS, 

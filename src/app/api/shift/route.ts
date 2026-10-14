@@ -4,7 +4,7 @@ import { db } from '@/db';
 import { activeShifts, timesheets, workSchedule, users } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { AnomalyEngine } from '@/services/anomalyEngine';
-import { logAuditEvent } from '@/app/actions/userActions';
+import { logAuditEvent } from '@/lib/audit';
 import { ShiftRole, getRoleLabel } from '@/lib/shiftTypes';
 
 export const dynamic = 'force-dynamic';

@@ -38,7 +38,7 @@ function ResetPasswordForm() {
     }
 
     if (password.length < 6) {
-      setError('Hasło musi składać się z co najmniej 6 znaków.');
+      setError('Hasło musi składać się z co najmniej 8 znaków.');
       return;
     }
 
@@ -117,7 +117,7 @@ function ResetPasswordForm() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Min. 6 znaków"
+                    placeholder="Min. 8 znaków"
                     disabled={loading}
                     className="w-full pl-4 pr-10 py-3 bg-[#1a1a1a] border border-white/10 rounded-lg text-white placeholder-white/20 focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition"
                   />

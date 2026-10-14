@@ -44,7 +44,7 @@ async function main() {
       role: "owner" as const,
       position: "Właściciel",
       birthDate: "1980-05-15",
-      mustChangePassword: false,
+      mustChangePassword: true,
       isDemo: false
     },
     {
@@ -56,7 +56,7 @@ async function main() {
       role: "manager" as const,
       position: "Menedżer Toru",
       birthDate: "1985-08-20",
-      mustChangePassword: false,
+      mustChangePassword: true,
       isDemo: false
     },
     {
@@ -68,7 +68,7 @@ async function main() {
       role: "employee" as const,
       position: "Instruktor Driftu",
       birthDate: "1995-03-10",
-      mustChangePassword: false,
+      mustChangePassword: true,
       isDemo: false
     },
     {
@@ -80,7 +80,7 @@ async function main() {
       role: "employee" as const,
       position: "Obsługa Klienta",
       birthDate: "1998-11-25",
-      mustChangePassword: false,
+      mustChangePassword: true,
       isDemo: false
     },
     {
@@ -92,7 +92,7 @@ async function main() {
       role: "employee" as const,
       position: "Instruktor Pro",
       birthDate: "1992-07-05",
-      mustChangePassword: false,
+      mustChangePassword: true,
       isDemo: false
     },
     {
@@ -104,7 +104,7 @@ async function main() {
       role: "technik" as const,
       position: "Technik Toru",
       birthDate: "1990-01-01",
-      mustChangePassword: false,
+      mustChangePassword: true,
       isDemo: false
     }
   ];

@@ -29,7 +29,7 @@ export function PortalFrame({ children, user }: PortalFrameProps) {
   return (
     <div className="min-h-screen bg-[#141414] text-[#e0e0e0] flex flex-col justify-between font-sans">
       {/* GÓRNY PASEK NAWIGACJI (HEADER BAR) */}
-      <header className="bg-[#333333] border-b border-white/10 text-white px-4 md:px-8 py-3 flex items-center justify-between shadow-md shrink-0 sticky top-0 z-30">
+      <header className="bg-[#333333] border-b border-white/10 text-white px-4 md:px-8 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center justify-between shadow-md shrink-0 sticky top-0 z-30">
         <button
           onClick={handleBack}
           disabled={pathname === '/dashboard' || pathname === '/'}
@@ -57,12 +57,12 @@ export function PortalFrame({ children, user }: PortalFrameProps) {
       </header>
 
       {/* GŁÓWNY OBSZAR TREŚCI */}
-      <main className="flex-1 w-full max-w-7xl mx-auto p-4 md:p-8 overflow-y-auto">
+      <main className="flex-1 w-full max-w-7xl mx-auto p-3 md:p-6 overflow-y-auto">
         {children}
       </main>
 
       {/* DOLNY PASEK NAWIGACJI (FOOTER BAR) */}
-      <footer className="bg-[#333333] border-t border-white/10 text-white px-4 md:px-8 py-3 flex items-center justify-between shadow-md shrink-0 sticky bottom-0 z-30">
+      <footer className="bg-[#333333] border-t border-white/10 text-white px-4 md:px-8 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center justify-between shadow-md shrink-0 sticky bottom-0 z-30">
         <Link
           href="/dashboard"
           className="text-xs font-bold uppercase tracking-wider text-[#a0a0a0] hover:text-brand-gold transition flex items-center gap-1.5 py-1 px-3 rounded hover:bg-white/5"

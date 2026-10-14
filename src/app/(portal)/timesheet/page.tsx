@@ -490,8 +490,8 @@ export default function TimesheetPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Table list */}
-        <div className="lg:col-span-2 glass-card rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="lg:col-span-2 glass-card rounded-2xl overflow-hidden stack-table">
+          <div className="md:overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm text-[#e0e0e0]">
               <thead className="bg-[#0a0a0a] border-b border-white/10 text-xs font-extrabold uppercase tracking-wider text-[#a0a0a0] font-display">
                 <tr>
@@ -520,27 +520,27 @@ export default function TimesheetPage() {
                           key={entry.id || index}
                           className={`hover:bg-[#1a1a1a] transition ${hasConflict ? 'bg-brand-red/5 hover:bg-brand-red/10' : ''}`}
                         >
-                          <td className={`py-4 px-6 font-bold ${hasConflict ? 'text-brand-red' : 'text-white'}`}>
+                          <td data-label="Data" className={`py-4 px-6 font-bold ${hasConflict ? 'text-brand-red' : 'text-white'}`}>
                             {entry.date} {hasConflict && '⚠️'}
                           </td>
-                          <td className="py-4 px-6 font-mono text-xs">{entry.startTime}</td>
-                          <td className="py-4 px-6 font-mono text-xs">{entry.endTime}</td>
-                          <td className="py-4 px-6 text-center font-extrabold text-brand-gold text-xs">
+                          <td data-label="Start" className="py-4 px-6 font-mono text-xs">{entry.startTime}</td>
+                          <td data-label="Koniec" className="py-4 px-6 font-mono text-xs">{entry.endTime}</td>
+                          <td data-label="Suma" className="py-4 px-6 text-center font-extrabold text-brand-gold text-xs">
                             {calculateHours(entry.startTime, entry.endTime)}h
                           </td>
-                          <td className="py-4 px-6 text-xs text-[#a0a0a0] max-w-xs truncate">{entry.remarks || '—'}</td>
+                          <td data-label="Uwagi" className="py-4 px-6 text-xs text-[#a0a0a0] max-w-xs truncate">{entry.remarks || '—'}</td>
                           {!isLocked && (
-                            <td className="py-4 px-6 text-right flex items-center justify-end gap-1.5">
+                            <td data-label="Akcje" className="py-4 px-6 text-right flex items-center justify-end gap-2">
                               <button
                                 onClick={() => handleEditClick(entry)}
-                                className="p-1.5 hover:bg-brand-gold/10 text-[#555] hover:text-brand-gold rounded-lg transition cursor-pointer"
+                                className="min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-brand-gold/10 text-[#555] hover:text-brand-gold rounded-lg transition cursor-pointer"
                                 title="Edytuj wpis"
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDelete(entry.id, index)}
-                                className="p-1.5 hover:bg-brand-red/10 text-[#555] hover:text-brand-red rounded-lg transition cursor-pointer"
+                                className="min-h-11 min-w-11 inline-flex items-center justify-center hover:bg-brand-red/10 text-[#555] hover:text-brand-red rounded-lg transition cursor-pointer"
                                 title="Usuń wpis"
                               >
                                 <Trash2 className="w-4 h-4" />

@@ -9,7 +9,7 @@ import { Calendar as CalendarIcon, Check, X, ShieldAlert, AlertTriangle, Send, L
 export default function AvailabilityPage() {
   const { data: session } = useSession();
   const currentUser = session?.user ? {
-    id: Number((session.user as any).id) || 1, // Fallback dla id demo
+    id: Number((session.user as any).id),
     role: (session.user as any).role || 'employee',
     name: session.user.name || 'Pracownik',
     isDemo: (session.user as any).isDemo || false
@@ -63,7 +63,7 @@ export default function AvailabilityPage() {
 
   // Pobieranie dyspozycyjności
   const fetchAvailability = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !Number.isFinite(currentUser.id)) return;
     setLoading(true);
     const targetUserId = viewMode === 'my' ? currentUser.id : selectedEmployeeId;
     

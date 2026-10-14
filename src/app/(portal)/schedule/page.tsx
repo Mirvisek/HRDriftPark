@@ -354,8 +354,8 @@ export default function SchedulePage() {
       )}
 
       {/* Schedule Table */}
-      <div className="glass-card rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="glass-card rounded-2xl overflow-hidden stack-table">
+        <div className="md:overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm text-[#e0e0e0]">
             <thead className="bg-[#0a0a0a] border-b border-white/10 text-xs font-extrabold uppercase tracking-wider text-[#a0a0a0] font-display">
               <tr>
@@ -394,7 +394,7 @@ export default function SchedulePage() {
                     className={`hover:bg-[#1a1a1a] transition ${isWeekend ? 'bg-brand-gold/[0.01]' : ''}`}
                   >
                     {/* Dzień */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4" data-label="Dzień">
                       <div className="font-bold text-white text-md">{dayNum}.</div>
                       <div className={`text-[10px] font-semibold ${isWeekend ? 'text-brand-gold' : 'text-[#a0a0a0]'}`}>
                         {dayName}
@@ -402,9 +402,9 @@ export default function SchedulePage() {
                     </td>
 
                     {/* Godziny otwarcia */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4" data-label="Godziny otwarcia">
                       {isManagerOrOwner ? (
-                        <div className="flex flex-col gap-1.5 min-w-[120px]">
+                        <div className="flex flex-col gap-1.5 min-w-0 md:min-w-[120px]">
                           <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
                             <input
                               type="checkbox"
@@ -440,7 +440,7 @@ export default function SchedulePage() {
                     </td>
 
                     {/* Obsada główna */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4" data-label="Obsada główna">
                       {isManagerOrOwner ? (
                         <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-1.5">
@@ -485,9 +485,9 @@ export default function SchedulePage() {
                     </td>
 
                     {/* Wydarzenie specjalne */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4" data-label="Wydarzenie">
                       {isManagerOrOwner ? (
-                        <div className="flex flex-col gap-1.5 min-w-[180px]">
+                        <div className="flex flex-col gap-1.5 min-w-0 md:min-w-[180px]">
                           <input
                             type="text"
                             value={entry.eventRemarks || ''}
@@ -546,7 +546,7 @@ export default function SchedulePage() {
                     </td>
 
                     {/* Uwagi */}
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4" data-label="Uwagi">
                       {isManagerOrOwner ? (
                         <input
                           type="text"

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import NextAuth from "next-auth";
 import { authConfig } from "./auth.config";
+import { hasPermission } from "./lib/permissions";
 
 const { auth } = NextAuth(authConfig);
 
@@ -11,6 +12,10 @@ export default auth((req) => {
 
   if (!isLoggedIn) {
     return NextResponse.redirect(new URL("/login", req.nextUrl));
+  }
+
+  if (pathname.startsWith("/admin/payroll") && !hasPermission(req.auth?.user, "payroll:view")) {
+    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 
   if (isReqAdmin) {

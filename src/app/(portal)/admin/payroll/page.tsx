@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getPayrollSummary } from '@/app/actions/timesheetActions';
+import { hasPermission } from '@/lib/permissions';
 import { exportPayrollToExcel } from '@/lib/excelExport';
 import { Calendar, DollarSign, User, Briefcase, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 
@@ -45,9 +46,8 @@ export default function PayrollPage() {
     }
 
     if (session?.user) {
-      const role = (session.user as any).role;
-      if (role !== 'owner' && role !== 'manager' && role !== 'technik') {
-        router.push('/timesheet');
+      if (!hasPermission(session.user, 'payroll:view')) {
+        router.push('/dashboard');
         return;
       }
     }

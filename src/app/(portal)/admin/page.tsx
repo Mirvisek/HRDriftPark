@@ -92,8 +92,8 @@ export default function AdminDashboardPage() {
       totalMinutes += (eh * 60 + em) - (sh * 60 + sm);
     });
     const hours = totalMinutes / 60;
-    const rate = emp.hourlyRate || 0;
-    const cost = hours * rate;
+    const hasRate = typeof emp.hourlyRate === 'number';
+    const cost = hasRate ? hours * emp.hourlyRate : null;
     const hasConflicts = empEntries.some(e => conflictDates.includes(e.date));
 
     return {
@@ -200,7 +200,9 @@ export default function AdminDashboardPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-white font-display">
-              {employeeSummaries.reduce((sum, e) => sum + e.cost, 0).toLocaleString('pl-PL', { maximumFractionDigits: 0 })} PLN
+              {employeeSummaries.some((e) => e.cost != null)
+                ? `${employeeSummaries.reduce((sum, e) => sum + (e.cost || 0), 0).toLocaleString('pl-PL', { maximumFractionDigits: 0 })} PLN`
+                : '—'}
             </div>
             <div className="text-xs text-[#a0a0a0]">Szacowane koszty płac</div>
           </div>
@@ -248,7 +250,7 @@ export default function AdminDashboardPage() {
                       </div>
                       <div className="text-right">
                         <div className="font-extrabold text-white text-sm">{emp.totalHours}h</div>
-                        <div className="text-[9px] text-[#555] font-semibold">{emp.cost.toFixed(0)} PLN</div>
+                        <div className="text-[9px] text-[#555] font-semibold">{emp.cost == null ? '—' : `${emp.cost.toFixed(0)} PLN`}</div>
                       </div>
                     </div>
                     {/* Visual load progress bar */}

@@ -41,14 +41,23 @@ export async function checkIsLocked(targetDateStr: string, userRole: string) {
 }
 
 export async function getAvailability(userId: number, year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) return { success: false, data: [], error: "Brak autoryzacji." };
+
+  const loggedUserId = Number((session.user as any).id);
+  const role = (session.user as any).role;
+  const canViewTeam = role === "owner" || role === "manager" || role === "technik" || hasPermission(session.user, "schedule:edit");
+  if (userId !== loggedUserId && !canViewTeam) {
+    return { success: false, data: [], error: "Brak uprawnień do dyspozycyjności tego pracownika." };
+  }
+
   const monthStr = String(month).padStart(2, '0');
   const lastDay = new Date(year, month, 0).getDate();
   const startDate = `${year}-${monthStr}-01`;
   const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
   
   try {
-    const session = await auth();
-    const userIsDemo = (session?.user as any)?.isDemo === true;
+    const userIsDemo = (session.user as any)?.isDemo === true;
 
     const results = await db
       .select()

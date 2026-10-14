@@ -2,14 +2,18 @@ import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import * as schema from './schema';
 
-const connectionString = process.env.DATABASE_URL || 'mysql://root:password@127.0.0.1:3306/driftpark_management';
+const connectionString = process.env.DATABASE_URL;
+const isProdRuntime = process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build";
+if (!connectionString && isProdRuntime) {
+  throw new Error("DATABASE_URL musi być ustawiony w produkcji.");
+}
 
 const globalForDb = globalThis as unknown as {
   conn: mysql.Pool | undefined;
 };
 
 const conn = globalForDb.conn ?? mysql.createPool({
-  uri: connectionString,
+  uri: connectionString || "mysql://root@127.0.0.1:3306/driftpark_management",
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

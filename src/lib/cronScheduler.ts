@@ -3,6 +3,10 @@ import { db } from '@/db';
 import { notifications, timesheets, users, shiftCashReconciliations, shiftChecklistItems, shiftChecklists, shiftReports, workSchedule } from '@/db/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import type { TimesheetEntry } from '@/app/actions/timesheetActions';
+import { insertNotification } from '@/lib/notify';
+import { polandDateString, polandTomorrowString } from '@/lib/polandDate';
+
+const WARSAW = { timezone: 'Europe/Warsaw' };
 
 export function initCronJobs() {
   // Sprawdzamy czy nie jesteśmy w przeglądarce
@@ -16,33 +20,29 @@ export function initCronJobs() {
     console.log("[CRON] [16-ty dzień miesiąca] Blokowanie edycji dyspozycyjności pracowników.");
     try {
       // Pobieramy wszystkich użytkowników i wysyłamy powiadomienia
-      const allUsers = await db.select({ id: users.id }).from(users);
-      const { sendSystemNotification } = await import("@/app/actions/userActions");
+      const allUsers = await db.select({ id: users.id, isDemo: users.isDemo }).from(users);
       for (const u of allUsers) {
-        await sendSystemNotification(u.id, "System automatycznie zamknął edycję dyspozycyjności na ten okres.");
+        await insertNotification(u.id, "System automatycznie zamknął edycję dyspozycyjności na ten okres.", u.isDemo);
       }
       console.log("[CRON] Wysłano powiadomienia o zamknięciu edycji dyspozycyjności.");
     } catch (e) {
       console.error("[CRON] Błąd podczas automatycznego powiadamiania o blokadzie dyspozycyjności:", e);
     }
-  });
+  }, WARSAW);
 
   // 2. Karta Godzin Pracy: Ostatniego dnia miesiąca o 22:00 system blokuje edycję i sprawdza konflikty
   // Uruchamia się codziennie o 22:00 i sprawdza, czy dziś jest ostatni dzień miesiąca
   cron.schedule('0 22 * * *', async () => {
-    const today = new Date();
-    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-    
-    // Jeśli jutro to 1 dzień kolejnego miesiąca, dzisiaj jest ostatni dzień miesiąca!
-    if (tomorrow.getDate() === 1) {
+    const todayStr = polandDateString();
+    const [year, month, day] = todayStr.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+    if (day === lastDay) {
       console.log("[CRON] [Koniec miesiąca, godzina 22:00] Rozpoczęto procedurę blokady kart godzin i analizy konfliktów.");
       try {
-        const year = today.getFullYear();
-        const month = today.getMonth() + 1;
-        const monthStr = String(month).padStart(2, '0');
-        const lastDay = new Date(year, month, 0).getDate();
+        const monthStr = String(month).padStart(2, "0");
         const startDate = `${year}-${monthStr}-01`;
-        const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+        const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}`;
 
         // Zablokuj wszystkie wpisy z bieżącego miesiąca w bazie danych
         await db
@@ -51,44 +51,41 @@ export function initCronJobs() {
           .where(and(gte(timesheets.date, startDate), lte(timesheets.date, endDate)));
           
         console.log(`[CRON] Pomyślnie zablokowano w bazie dane kart pracy na okres od ${startDate} do ${endDate}`);
-        
-        const { getAllTimesheets } = await import("@/app/actions/timesheetActions");
-        const { checkConflicts } = await import("@/lib/timesheetUtils");
-        const res = await getAllTimesheets(year, month);
-        if (res.success && res.data) {
-          // Pogrupuj wpisy dla każdego pracownika i sprawdź konflikty
-          const userEntriesMap: Record<number, TimesheetEntry[]> = {};
-          res.data.forEach(e => {
-            if (!userEntriesMap[e.userId]) userEntriesMap[e.userId] = [];
-            userEntriesMap[e.userId].push(e);
-          });
 
-          let conflictCount = 0;
-          for (const [userId, userEntries] of Object.entries(userEntriesMap)) {
-            const conflicts = checkConflicts(userEntries);
-            if (conflicts.length > 0) {
-              conflictCount += conflicts.length;
-              // Wyślij powiadomienie do pracownika
-              const { sendSystemNotification } = await import("@/app/actions/userActions");
-              await sendSystemNotification(Number(userId), `⚠️ Wykryto konflikty (nakładanie się zmian) w Twojej karcie godzin w dniach: ${conflicts.join(', ')}. Popraw dane!`);
-            }
+        const { checkConflicts } = await import("@/lib/timesheetUtils");
+        const rows = await db.select().from(timesheets).where(and(gte(timesheets.date, startDate), lte(timesheets.date, endDate)));
+        const userEntriesMap: Record<number, TimesheetEntry[]> = {};
+        rows.forEach(e => {
+          if (!userEntriesMap[e.userId]) userEntriesMap[e.userId] = [];
+          userEntriesMap[e.userId].push(e as TimesheetEntry);
+        });
+
+        let conflictCount = 0;
+        for (const [userId, userEntries] of Object.entries(userEntriesMap)) {
+          const conflicts = checkConflicts(userEntries);
+          if (conflicts.length > 0) {
+            conflictCount += conflicts.length;
+            const employee = await db.select({ isDemo: users.isDemo }).from(users).where(eq(users.id, Number(userId))).limit(1);
+            await insertNotification(
+              Number(userId),
+              `Wykryto konflikty (nakładanie się zmian) w karcie godzin w dniach: ${conflicts.join(', ')}. Popraw dane.`,
+              employee[0]?.isDemo === true
+            );
           }
-          console.log(`[CRON] Zweryfikowano konflikty. Znaleziono ${conflictCount} kolizji czasowych.`);
         }
+        console.log(`[CRON] Zweryfikowano konflikty. Znaleziono ${conflictCount} kolizji czasowych.`);
       } catch (e) {
         console.error("[CRON] Błąd procedury zamykania kart godzin:", e);
       }
     }
-  });
+  }, WARSAW);
 
   // 3. Przypomnienie o zmianie dzień wcześniej o 20:00
   // Uruchamia się codziennie o 20:00
   cron.schedule('0 20 * * *', async () => {
     console.log("[CRON] [Godzina 20:00] Rozpoczęto wysyłanie przypomnień o jutrzejszych dyżurach.");
     try {
-      const today = new Date();
-      const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split('T')[0]; // Format YYYY-MM-DD
+      const tomorrowStr = polandTomorrowString();
       
       const { workSchedule } = await import("@/db/schema");
       const { eq } = await import("drizzle-orm");
@@ -107,7 +104,6 @@ export function initCronJobs() {
       
       const plan = tomorrowPlans[0];
       const { sendPushNotification, getFormattedNotification } = await import("@/lib/webPush");
-      const { sendSystemNotification } = await import("@/app/actions/userActions");
       
       // 1. Sprawdź czy jest wydarzenie specjalne i przypisane osoby
       if (plan.eventRemarks) {
@@ -121,7 +117,7 @@ export function initCronJobs() {
               { remarks: plan.eventRemarks },
               `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}".`
             );
-            await sendSystemNotification(id, msg);
+            await insertNotification(id, msg);
             await sendPushNotification(id, title, msg, '/schedule');
           }
           console.log(`[CRON] Wysłano przypomnienia o wydarzeniu do dedykowanych pracowników: ${plan.eventUserIds}`);
@@ -135,11 +131,11 @@ export function initCronJobs() {
             `Jutro obsługujesz wydarzenie: "${plan.eventRemarks}" (jako osoba z grafiku).`
           );
           if (plan.leadUserId) {
-            await sendSystemNotification(plan.leadUserId, msg);
+            await insertNotification(plan.leadUserId, msg);
             await sendPushNotification(plan.leadUserId, title, msg, '/schedule');
           }
           if (plan.supportUserId) {
-            await sendSystemNotification(plan.supportUserId, msg);
+            await insertNotification(plan.supportUserId, msg);
             await sendPushNotification(plan.supportUserId, title, msg, '/schedule');
           }
           console.log(`[CRON] Wysłano przypomnienia o wydarzeniu do głównej obsady z grafiku (Lead: ${plan.leadUserId}, Support: ${plan.supportUserId}).`);
@@ -160,7 +156,7 @@ export function initCronJobs() {
           {},
           `Jutro masz zaplanowaną zmianę jako Osoba Prowadząca.`
         );
-        await sendSystemNotification(plan.leadUserId, msg);
+        await insertNotification(plan.leadUserId, msg);
         await sendPushNotification(plan.leadUserId, title, msg, '/schedule');
       }
       
@@ -171,7 +167,7 @@ export function initCronJobs() {
           {},
           `Jutro masz zaplanowaną zmianę jako Osoba Wspomagająca.`
         );
-        await sendSystemNotification(plan.supportUserId, msg);
+        await insertNotification(plan.supportUserId, msg);
         await sendPushNotification(plan.supportUserId, title, msg, '/schedule');
       }
       
@@ -179,12 +175,12 @@ export function initCronJobs() {
     } catch (err) {
       console.error("[CRON] Błąd podczas wysyłania przypomnień o dyżurach:", err);
     }
-  });
+  }, WARSAW);
 
   // 4. Przypomnienie o niedomkniętej zmianie — codziennie o 21:30.
   cron.schedule('30 21 * * *', async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = polandDateString();
       const plans = await db.select().from(workSchedule).where(eq(workSchedule.date, today));
       for (const plan of plans) {
         if (plan.isClosed) continue;
@@ -209,7 +205,7 @@ export function initCronJobs() {
         }
       }
     } catch (error) { console.error('[CRON] Błąd przypomnienia o zamknięciu zmiany:', error); }
-  });
+  }, WARSAW);
 
   // 5. Worker Outbox: Co 1 minutę przetwarza oczekujące zdarzenia w tle
   cron.schedule('* * * * *', async () => {
@@ -219,6 +215,6 @@ export function initCronJobs() {
     } catch (e) {
       console.error('[CRON] Błąd przetwarzania kolejki Outbox:', e);
     }
-  });
+  }, WARSAW);
 }
 export default initCronJobs;

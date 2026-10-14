@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { timesheets, users, salaryHistory } from "@/db/schema";
 import { eq, and, gte, lte, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
-import { logAuditEvent } from "./userActions";
+import { logAuditEvent } from "@/lib/audit";
 import { hasPermission } from "@/lib/permissions";
 import { canTransition } from "@/lib/workflow";
 import { executeIdempotentAction, runTransaction } from "@/lib/transaction";
@@ -66,11 +66,20 @@ export async function checkTimesheetLocked(year: number, month: number, user: an
 }
 
 export async function getTimesheets(userId: number, year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) {
+    return { success: false, data: [], estimatedPayout: 0, error: "Brak autoryzacji." };
+  }
+  const executorId = Number((session.user as any).id);
+  const canViewOthers = hasPermission(session.user, "timesheet:view_all") || hasPermission(session.user, "timesheet:edit_all");
+  if (userId !== executorId && !canViewOthers) {
+    return { success: false, data: [], estimatedPayout: 0, error: "Brak uprawnień do kart godzin tego pracownika." };
+  }
+
   const { startDate, endDate } = getMonthDateRange(year, month);
 
   try {
-    const session = await auth();
-    const userIsDemo = (session?.user as any)?.isDemo === true;
+    const userIsDemo = (session.user as any)?.isDemo === true;
 
     const results = await db
       .select()

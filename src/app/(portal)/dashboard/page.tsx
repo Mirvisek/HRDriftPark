@@ -172,7 +172,7 @@ export default function DashboardPage() {
               e.stopPropagation();
               void handleStopShift();
             }}
-            className="px-2.5 py-1 rounded bg-black/40 hover:bg-black/60 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border border-white/20 transition cursor-pointer"
+            className="min-h-11 px-4 py-2 rounded bg-black/40 hover:bg-black/60 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1 border border-white/20 transition cursor-pointer"
           >
             <Square className="w-3 h-3 text-red-200 fill-red-200" /> Zakończ
           </span>
@@ -186,7 +186,7 @@ export default function DashboardPage() {
             e.stopPropagation();
             setShowStartModal(true);
           }}
-          className="mt-1 px-2.5 py-1 rounded bg-brand-gold/20 hover:bg-brand-gold/30 text-brand-gold text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border border-brand-gold/30 transition cursor-pointer"
+          className="mt-1 min-h-11 px-4 py-2 rounded bg-brand-gold/20 hover:bg-brand-gold/30 text-brand-gold text-xs font-black uppercase tracking-wider flex items-center gap-1 border border-brand-gold/30 transition cursor-pointer"
         >
           <Play className="w-3 h-3 fill-brand-gold" /> Rozpocznij pracę
         </span>
@@ -349,7 +349,7 @@ export default function DashboardPage() {
             <Link
               key={idx}
               href={tile.href}
-              className={`${tile.color} text-white font-extrabold p-6 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-200 flex flex-col items-center justify-center text-center gap-2 h-36 md:h-44 active:scale-95 border border-white/10 group cursor-pointer relative overflow-hidden`}
+              className={`${tile.color} text-white font-extrabold p-6 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-200 flex flex-col items-center justify-center text-center gap-2 min-h-40 md:min-h-44 active:scale-95 border border-white/10 group cursor-pointer relative overflow-hidden`}
             >
               <Icon className="w-7 h-7 md:w-9 md:h-9 text-white/90 group-hover:scale-110 transition-transform" />
               <span className="text-xs md:text-sm tracking-wider uppercase">{tile.title}</span>

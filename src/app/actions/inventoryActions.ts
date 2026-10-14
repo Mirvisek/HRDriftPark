@@ -955,10 +955,11 @@ export async function getWarehouseHistoryAction(filters?: { productId?: number; 
     .leftJoin(users, eq(warehouseHistory.userId, users.id));
     
     const query = baseQuery.where(and(...conditions));
-    const data = await query.orderBy(desc(warehouseHistory.createdAt));
+    const data = await query.orderBy(desc(warehouseHistory.createdAt)).limit(200);
     return { success: true, data };
   } catch (e: any) {
-    return { success: false, error: e.message };
+    console.error("Błąd historii magazynu:", e);
+    return { success: false, error: "Błąd pobierania historii magazynu." };
   }
 }
 
@@ -967,6 +968,15 @@ export async function getWarehouseHistoryAction(filters?: { productId?: number; 
 // -------------------------------------------------------------
 
 export async function triggerDailySpotCheckAction(dateStr: string, venueId: number, isDemo: boolean = false) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return { success: false, error: "Nieprawidłowa data." };
+  const userVenueId = Number((session.user as any).venueId || 1);
+  const userIsDemo = (session.user as any).isDemo === true;
+  if (Number(venueId) !== userVenueId || Boolean(isDemo) !== userIsDemo) {
+    return { success: false, error: "Brak uprawnień do inwentaryzacji tego lokalu." };
+  }
+
   try {
     const existing = await db.select()
       .from(warehouseInventories)

@@ -2,11 +2,19 @@
 
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { eq, and, gt } from "drizzle-orm";
-import { auth, signOut } from "@/auth";
+import { eq, and } from "drizzle-orm";
+import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendMail, getSetting } from "@/lib/mail";
+import { rateLimit } from "@/lib/rateLimit";
+import { revokeUserSessions } from "@/lib/sessionGuard";
+
+const MIN_PASSWORD = 8;
+
+function hashResetToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 /**
  * Zmienia hasło zalogowanego użytkownika (używane przy wymuszonej zmianie przy pierwszym logowaniu)
@@ -17,12 +25,13 @@ export async function changePasswordAction(password: string) {
     return { success: false, error: "Brak autoryzacji. Zaloguj się ponownie." };
   }
 
-  if (!password || password.length < 6) {
-    return { success: false, error: "Hasło musi mieć co najmniej 6 znaków." };
+  if (!password || password.length < MIN_PASSWORD) {
+    return { success: false, error: "Hasło musi mieć co najmniej 8 znaków." };
   }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
+    const account = await db.select({ id: users.id }).from(users).where(eq(users.email, session.user.email)).limit(1);
     
     await db
       .update(users)
@@ -31,6 +40,10 @@ export async function changePasswordAction(password: string) {
         mustChangePassword: false,
       })
       .where(eq(users.email, session.user.email));
+
+    if (account.length > 0) {
+      await revokeUserSessions(account[0].id, Number((session.user as any).sessionRowId || 0));
+    }
 
     console.log(`[Auth] Pomyślnie zmieniono hasło (wymuszone) dla użytkownika: ${session.user.email}`);
     return { success: true };
@@ -50,6 +63,10 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
   }
 
   const successMessage = "Link do restartu hasła został wysłany! Jeżeli nie posiadasz konta skontaktuj się z administratorem!";
+  const emailKey = email.trim().toLowerCase();
+  if (!rateLimit(`forgot:${emailKey}`, 5, 60 * 60 * 1000)) {
+    return { success: true, message: successMessage };
+  }
 
   try {
     // Wyszukanie użytkownika o danym e-mailu i dacie urodzenia
@@ -58,7 +75,7 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
       .from(users)
       .where(
         and(
-          eq(users.email, email.trim()),
+          eq(users.email, emailKey),
           eq(users.birthDate, birthDate.trim())
         )
       )
@@ -66,7 +83,7 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
 
     if (dbUsers.length === 0) {
       // Bezpieczeństwo: Nie ujawniamy informacji czy email/data urodzenia są poprawne
-      console.log(`[Auth Forgot] Próba odzyskania hasła dla nieistniejącego konta lub z błędną datą urodzenia: ${email} (${birthDate})`);
+      console.log(`[Auth Forgot] Odrzucono reset dla podanego adresu.`);
       return { success: true, message: successMessage };
     }
 
@@ -76,11 +93,11 @@ export async function forgotPasswordAction(email: string, birthDate: string) {
     const token = crypto.randomBytes(32).toString('hex');
     const tokenExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 godzina ważności
 
-    // Zapis tokenu w bazie danych
+    // W bazie zostaje skrót tokenu. W mailu jest surowy token.
     await db
       .update(users)
       .set({
-        resetToken: token,
+        resetToken: hashResetToken(token),
         resetTokenExpires: tokenExpires
       })
       .where(eq(users.id, user.id));
@@ -130,8 +147,8 @@ export async function resetPasswordAction(token: string, password: string) {
     return { success: false, error: "Token oraz nowe hasło są wymagane." };
   }
 
-  if (password.length < 6) {
-    return { success: false, error: "Hasło musi mieć co najmniej 6 znaków." };
+  if (password.length < MIN_PASSWORD) {
+    return { success: false, error: "Hasło musi mieć co najmniej 8 znaków." };
   }
 
   try {
@@ -140,7 +157,7 @@ export async function resetPasswordAction(token: string, password: string) {
     const dbUsers = await db
       .select()
       .from(users)
-      .where(eq(users.resetToken, token))
+      .where(eq(users.resetToken, hashResetToken(token)))
       .limit(1);
 
     if (dbUsers.length === 0) {
@@ -166,6 +183,8 @@ export async function resetPasswordAction(token: string, password: string) {
         mustChangePassword: false, // Użytkownik sam zresetował hasło, nie wymuszamy kolejnej zmiany
       })
       .where(eq(users.id, user.id));
+
+    await revokeUserSessions(user.id);
 
     console.log(`[Auth Reset] Pomyślnie zresetowano hasło dla użytkownika o ID ${user.id} (${user.email})`);
     return { success: true };

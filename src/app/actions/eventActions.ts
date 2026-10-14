@@ -4,8 +4,19 @@ import { db } from "@/db";
 import { events } from "@/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 import { recordOutboxEvent } from "@/lib/outbox";
 import { executeIdempotentAction } from "@/lib/transaction";
+
+function canManageEvents(user: any) {
+  const role = user?.role;
+  return role === "owner" || role === "manager" || hasPermission(user, "schedule:edit");
+}
+
+function redactEvent<T extends { customerPhone?: string | null; totalAmount?: number; depositPaid?: number; notes?: string | null }>(event: T, full: boolean) {
+  if (full) return event;
+  return { ...event, customerPhone: null, totalAmount: 0, depositPaid: 0, notes: null };
+}
 
 export interface EventData {
   id?: number;
@@ -34,6 +45,7 @@ export async function getEventsAction(dateStr?: string) {
 
   const venueId = (session.user as any).venueId || 1;
   const isDemo = (session.user as any).isDemo === true;
+  const full = canManageEvents(session.user);
 
   try {
     const conditions = [
@@ -51,7 +63,7 @@ export async function getEventsAction(dateStr?: string) {
       .where(and(...conditions))
       .orderBy(desc(events.date));
 
-    return { success: true, data: results };
+    return { success: true, data: results.map((event) => redactEvent(event, full)) };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -60,10 +72,18 @@ export async function getEventsAction(dateStr?: string) {
 export async function createOrUpdateEventAction(eventData: EventData, idempotencyKey?: string): Promise<ActionResponse> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  if (!canManageEvents(session.user)) return { success: false, error: "Brak uprawnień do edycji rezerwacji." };
 
   const userId = Number((session.user as any).id);
   const venueId = (session.user as any).venueId || 1;
   const isDemo = (session.user as any).isDemo === true;
+
+  if (eventData.id) {
+    const existing = await db.select({ id: events.id }).from(events)
+      .where(and(eq(events.id, eventData.id), eq(events.venueId, venueId)))
+      .limit(1);
+    if (existing.length === 0) return { success: false, error: "Nie znaleziono rezerwacji w tym lokalu." };
+  }
 
   return (await executeIdempotentAction<ActionResponse>(userId, 'createOrUpdateEvent', idempotencyKey, async (tx) => {
     const client = tx || db;
@@ -84,7 +104,7 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
           notes: eventData.notes || null,
           status: (eventData.status as any) || 'booked'
         })
-        .where(eq(events.id, eventData.id));
+        .where(and(eq(events.id, eventData.id), eq(events.venueId, venueId)));
 
       await recordOutboxEvent('EVENT_UPDATED', { eventId: eventData.id, date: eventData.date, venueId }, client);
       return { success: true, eventId: eventData.id };
@@ -116,9 +136,16 @@ export async function createOrUpdateEventAction(eventData: EventData, idempotenc
 export async function deleteEventAction(eventId: number): Promise<ActionResponse> {
   const session = await auth();
   if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+  if (!canManageEvents(session.user)) return { success: false, error: "Brak uprawnień do usuwania rezerwacji." };
+
+  const venueId = (session.user as any).venueId || 1;
 
   try {
-    await db.delete(events).where(eq(events.id, eventId));
+    const existing = await db.select({ id: events.id }).from(events)
+      .where(and(eq(events.id, eventId), eq(events.venueId, venueId)))
+      .limit(1);
+    if (existing.length === 0) return { success: false, error: "Nie znaleziono rezerwacji w tym lokalu." };
+    await db.delete(events).where(and(eq(events.id, eventId), eq(events.venueId, venueId)));
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message };

@@ -6,7 +6,30 @@ import { eq, ne, and, isNull, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
 import { sendMail, getSetting } from "@/lib/mail";
-import { hasPermission, PermissionKey } from "@/lib/permissions";
+import { hasPermission, PERMISSIONS, PermissionKey } from "@/lib/permissions";
+import crypto from "crypto";
+import { revokeUserSessions } from "@/lib/sessionGuard";
+
+function assignmentError(actor: any, role: string, permissions: string | undefined, targetRole?: string) {
+  if (actor?.role !== "owner" && (role === "owner" || targetRole === "owner")) {
+    return "Tylko właściciel może nadawać lub zmieniać konto właściciela.";
+  }
+  if (actor?.role === "owner" || permissions === undefined) return null;
+  const requested = permissions.split(",").map((p) => p.trim()).filter(Boolean);
+  for (const permission of requested) {
+    if (!Object.values(PERMISSIONS).includes(permission as PermissionKey)) {
+      return "Lista uprawnień zawiera nieznaną pozycję.";
+    }
+    if (!hasPermission(actor, permission as PermissionKey)) {
+      return "Nie możesz nadać uprawnienia, którego sam nie posiadasz.";
+    }
+  }
+  return null;
+}
+
+function createTempPassword() {
+  return crypto.randomBytes(12).toString("base64url");
+}
 
 /**
  * Zabezpiecza akcje ustawień - weryfikuje posiadanie danego uprawnienia przez zalogowanego użytkownika
@@ -135,6 +158,9 @@ export async function createUserAction(userData: {
     return { success: false, error: "Wszystkie pola są wymagane." };
   }
 
+  const denied = assignmentError(session.user, role, permissions);
+  if (denied) return { success: false, error: denied };
+
   try {
     // Sprawdzenie unikalności e-maila
     const existing = await db
@@ -147,8 +173,7 @@ export async function createUserAction(userData: {
       return { success: false, error: "Użytkownik o podanym adresie e-mail już istnieje." };
     }
 
-    // Generowanie losowego, bezpiecznego hasła tymczasowego
-    const tempPassword = Math.random().toString(36).substring(2, 12);
+    const tempPassword = createTempPassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     // Wyliczenie domyślnych uprawnień w przypadku braku przesłanych
@@ -200,7 +225,7 @@ export async function createUserAction(userData: {
       });
     }
 
-    console.log(`[Settings] Utworzono konto dla ${email} z hasłem tymczasowym: ${tempPassword} oraz dodano stawkę początkową do historii.`);
+    console.log(`[Settings] Utworzono konto dla ${email} oraz dodano stawkę początkową do historii.`);
 
     // Pobieranie adresu URL strony do linku w e-mailu
     const baseUrl = await getSetting('site_url', process.env.NEXTAUTH_URL || "http://localhost:3000");
@@ -385,6 +410,11 @@ export async function updateUserAction(
     .join(',');
 
   try {
+    const target = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+    if (target.length === 0) return { success: false, error: "Nie znaleziono użytkownika." };
+    const denied = assignmentError(session.user, role, cleanPermissions, target[0].role);
+    if (denied) return { success: false, error: denied };
+
     // Sprawdzenie unikalności e-maila (z wyłączeniem obecnego użytkownika)
     const existing = await db
       .select()
@@ -435,9 +465,11 @@ export async function resetUserPasswordAction(userId: number) {
     }
 
     const targetUser = userResult[0];
+    if ((session.user as any).role !== "owner" && targetUser.role === "owner") {
+      return { success: false, error: "Tylko właściciel może resetować hasło właściciela." };
+    }
 
-    // Generowanie nowego hasła tymczasowego
-    const tempPassword = Math.random().toString(36).substring(2, 12);
+    const tempPassword = createTempPassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     // Zapis w bazie
@@ -449,6 +481,7 @@ export async function resetUserPasswordAction(userId: number) {
       })
       .where(eq(users.id, userId));
 
+    await revokeUserSessions(userId);
     console.log(`[Settings] Zresetowano hasło dla ${targetUser.email} przez ${session.user?.name}`);
 
     // Próba wysłania e-maila informacyjnego (jeśli konfiguracja SMTP jest poprawna)
@@ -581,12 +614,18 @@ export async function uploadLogoAction(formData: FormData) {
       return { success: false, error: "Nie przesłano pliku." };
     }
 
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
-    if (!allowedTypes.includes(file.type)) {
-      return { success: false, error: "Dozwolone formaty: PNG, JPG, WebP, SVG." };
+    const allowedTypes: Record<string, string> = {
+      'image/png': '.png',
+      'image/jpeg': '.jpg',
+      'image/webp': '.webp',
+    };
+    const ext = allowedTypes[file.type];
+    if (!ext) {
+      return { success: false, error: "Dozwolone formaty: PNG, JPG, WebP." };
     }
-
-    const ext = path.extname(file.name) || '.png';
+    if (file.size > 2 * 1024 * 1024) {
+      return { success: false, error: "Logo może mieć najwyżej 2 MB." };
+    }
     const fileName = `logo${ext}`;
     const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'logo');
     await fs.promises.mkdir(uploadDir, { recursive: true });
@@ -674,7 +713,8 @@ export async function exportDatabaseBackupAction() {
     const allSchedule = await db.select().from(workSchedule);
     const allTimesheets = await db.select().from(timesheets);
     const allProducts = await db.select().from(warehouseProducts);
-    const allSettings = await db.select().from(settings);
+    const allSettings = (await db.select().from(settings))
+      .filter((row) => !/(pass|secret|token|vapid|private)/i.test(row.key));
 
     const backupData = {
       timestamp: new Date().toISOString(),
@@ -690,7 +730,7 @@ export async function exportDatabaseBackupAction() {
     return { success: true, json: JSON.stringify(backupData, null, 2) };
   } catch (e: any) {
     console.error("Błąd podczas tworzenia kopii zapasowej:", e);
-    return { success: false, error: e.message };
+    return { success: false, error: "Nie udało się utworzyć kopii zapasowej." };
   }
 }
 
