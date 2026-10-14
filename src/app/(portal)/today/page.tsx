@@ -1,5 +1,6 @@
 'use client';
 
+import { ShiftDuration } from '@/components/ShiftDuration';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
@@ -67,7 +68,6 @@ export default function TodayPage() {
   const [loadingShift, setLoadingShift] = useState(true);
   const [selectedRole, setSelectedRole] = useState<ShiftRole>('lead');
   const [submittingShiftAction, setSubmittingShiftAction] = useState(false);
-  const [liveDuration, setLiveDuration] = useState<string>('');
   const [managerBypass, setManagerBypass] = useState(false);
 
   const canBypass = user && (user.role === 'owner' || hasPermission(user, 'timesheet:edit_all'));
@@ -122,31 +122,6 @@ export default function TodayPage() {
     });
     return () => { active = false; };
   }, [date]);
-
-  // Licznik na żywo czasu trwania zmiany
-  useEffect(() => {
-    if (!activeShiftInfo?.hasActiveShift || !activeShiftInfo.shift?.startedAt) {
-      setLiveDuration('');
-      return;
-    }
-
-    const updateTimer = () => {
-      const startTime = new Date(activeShiftInfo.shift!.startedAt!).getTime();
-      const now = new Date().getTime();
-      const diffMs = Math.max(0, now - startTime);
-
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-      const pad = (n: number) => String(n).padStart(2, '0');
-      setLiveDuration(`${pad(hours)}:${pad(minutes)}:${pad(seconds)}`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [activeShiftInfo]);
 
   // Obsługa startu zmiany
   const handleStartShift = async () => {
@@ -306,7 +281,7 @@ export default function TodayPage() {
                 </span>
               </div>
               <p className="text-xs text-red-200/70 mt-1">
-                Start: <strong className="text-white">{activeShiftInfo.shift.startTime || '—'}</strong> • Czas na żywo: <span className="font-mono font-bold text-white tracking-wider">{liveDuration || '00:00:00'}</span>
+                Start: <strong className="text-white">{activeShiftInfo.shift.startTime || '—'}</strong> • Czas na żywo: <span className="font-mono font-bold text-white tracking-wider"><ShiftDuration startedAt={activeShiftInfo.shift.startedAt} /></span>
               </p>
             </div>
           </div>

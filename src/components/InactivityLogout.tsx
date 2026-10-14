@@ -68,7 +68,7 @@ export function InactivityLogout() {
     
     // Dodajemy nasłuchiwanie zdarzeń aktywności
     events.forEach(event => {
-      window.addEventListener(event, resetInactivityTimer);
+      window.addEventListener(event, resetInactivityTimer, { passive: true });
     });
 
     // Inicjalne uruchomienie timera

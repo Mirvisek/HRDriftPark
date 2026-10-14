@@ -1,22 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { getTimesheets, saveTimesheet, deleteTimesheet, checkTimesheetLocked, TimesheetEntry } from '@/app/actions/timesheetActions';
 import { checkConflicts } from '@/lib/timesheetUtils';
 import { Plus, Trash2, FileText, FileSpreadsheet, Lock, Unlock, AlertTriangle, RefreshCw, X, ShieldAlert, Edit2, Bell } from 'lucide-react';
-import dynamic from 'next/dynamic';
-import { TimesheetPDF } from '@/components/TimesheetPDF';
-import { exportTimesheetToExcel } from '@/lib/excelExport';
 import { getWorkSchedule } from '@/app/actions/scheduleActions';
 import { getCurrentUserRateAction } from '@/app/actions/userActions';
 import { testPushNotificationAction } from '@/app/actions/pushActions';
-
-// Dynamiczny import linku pobierania react-pdf, aby uniknąć błędów SSR (Server-Side Rendering)
-const PDFDownloadLink = dynamic(
-  () => import('@react-pdf/renderer').then((mod) => mod.PDFDownloadLink),
-  { ssr: false }
-);
 
 export default function TimesheetPage() {
   const { data: session } = useSession();
@@ -101,20 +92,6 @@ export default function TimesheetPage() {
       setFormEnd(hours.closeTime);
     }
   };
-
-  const memoizedPDF = useMemo(() => {
-    if (!currentUser) return null;
-    return (
-      <TimesheetPDF
-        entries={entries}
-        employeeName={currentUser.name}
-        position={currentUser.position}
-        monthName={monthNames[month]}
-        year={year}
-        month={month}
-      />
-    );
-  }, [entries, currentUser, month, year]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -373,31 +350,50 @@ export default function TimesheetPage() {
             </button>
           )}
 
-          {isMounted && currentUser && memoizedPDF && (
-            <PDFDownloadLink
-              document={memoizedPDF}
-              fileName={`karta_godzin_${currentUser.name.replace(/\s+/g, '_')}_${monthNames[month]}_${year}.pdf`}
+          {isMounted && currentUser && (
+            <button
+              onClick={async () => {
+                const [{ pdf }, { TimesheetPDF }] = await Promise.all([
+                  import('@react-pdf/renderer'),
+                  import('@/components/TimesheetPDF'),
+                ]);
+                const blob = await pdf(
+                  <TimesheetPDF
+                    entries={entries}
+                    employeeName={currentUser.name}
+                    position={currentUser.position}
+                    monthName={monthNames[month]}
+                    year={year}
+                    month={month}
+                  />
+                ).toBlob();
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `karta_godzin_${currentUser.name.replace(/\s+/g, '_')}_${monthNames[month]}_${year}.pdf`;
+                link.click();
+                URL.revokeObjectURL(url);
+              }}
               className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer"
             >
-              {({ loading }) => (
-                <>
-                  <FileText className="w-4 h-4 text-brand-gold" />
-                  <span>{loading ? 'Generowanie...' : 'Eksportuj PDF'}</span>
-                </>
-              )}
-            </PDFDownloadLink>
+              <FileText className="w-4 h-4 text-brand-gold" />
+              <span>Eksportuj PDF</span>
+            </button>
           )}
 
           {isMounted && currentUser && (
             <button
-              onClick={() => exportTimesheetToExcel({
+              onClick={async () => {
+                const { exportTimesheetToExcel } = await import('@/lib/excelExport');
+                exportTimesheetToExcel({
                 entries,
                 employeeName: currentUser.name,
                 position: currentUser.position,
                 monthName: monthNames[month],
                 year,
                 month
-              })}
+              });
+              }}
               className="px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-xs font-bold text-white transition flex items-center gap-2 cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 text-green-500" />

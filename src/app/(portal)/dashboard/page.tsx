@@ -24,6 +24,7 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
+import { ShiftDuration } from '@/components/ShiftDuration';
 import { hasPermission } from '@/lib/permissions';
 import { 
   getActiveShiftAction, 
@@ -47,7 +48,6 @@ export default function DashboardPage() {
   const [selectedRole, setSelectedRole] = useState<ShiftRole>('lead');
   const [submittingAction, setSubmittingAction] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [liveDuration, setLiveDuration] = useState<string>('');
 
   // Pobierz stan aktywnej zmiany przy montowaniu
   const fetchShiftState = async () => {
@@ -67,31 +67,6 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchShiftState();
   }, []);
-
-  // Timer czasu trwania zmiany na żywo
-  useEffect(() => {
-    if (!activeShiftInfo?.hasActiveShift || !activeShiftInfo.shift?.startedAt) {
-      setLiveDuration('');
-      return;
-    }
-
-    const updateTimer = () => {
-      const startTime = new Date(activeShiftInfo.shift!.startedAt!).getTime();
-      const now = new Date().getTime();
-      const diffMs = Math.max(0, now - startTime);
-
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-      const pad = (n: number) => String(n).padStart(2, '0');
-      setLiveDuration(`${pad(hours)}:${pad(minutes)}:${pad(seconds)}`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [activeShiftInfo]);
 
   const handleStartShift = async () => {
     setSubmittingAction(true);
@@ -153,13 +128,13 @@ export default function DashboardPage() {
   const tiles = [
     {
       title: isShiftActive ? 'DZISIAJ (ZMIANA W TOKU)' : 'DZISIAJ (PANEL ZMIANY)',
-      subtitle: isShiftActive 
-        ? `🔴 W pracy od ${activeShiftInfo?.shift?.startTime} (${currentRoleLabel})${liveDuration ? ` • ${liveDuration}` : ''}`
+      subtitle: isShiftActive
+        ? <>W pracy od {activeShiftInfo?.shift?.startTime} ({currentRoleLabel}) <ShiftDuration startedAt={activeShiftInfo?.shift?.startedAt} /></>
         : 'Podsumowanie i operacje dnia',
       href: '/today',
       icon: Sun,
       color: isShiftActive 
-        ? 'bg-gradient-to-br from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 border-red-400/50 shadow-red-950/60 ring-2 ring-red-500/40 animate-pulse'
+        ? 'bg-gradient-to-br from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 border-red-400/50 shadow-red-950/60 ring-2 ring-red-500/40'
         : 'bg-[#186f75] hover:bg-[#1f878e]',
       show: true,
       customAction: isShiftActive ? (
