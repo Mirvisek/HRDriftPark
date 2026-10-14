@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { saveSubscriptionAction } from '@/app/actions/pushActions';
+import { getVapidPublicKeyAction, saveSubscriptionAction } from '@/app/actions/pushActions';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
+    .replace(/-/g, '+')
     .replace(/_/g, '/');
 
   const rawData = window.atob(base64);
@@ -19,83 +19,13 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+type Prompt = 'ask' | 'denied' | 'ios' | 'nokey' | null;
+
 export function PushRegister() {
   const { data: session, status } = useSession();
+  const [prompt, setPrompt] = useState<Prompt>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (status !== 'authenticated' || !session?.user) return;
-
-    async function registerPush() {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        console.warn('Powiadomienia Push nie są obsługiwane w tej przeglądarce.');
-        return;
-      }
-
-      try {
-        // Rejestracja Service Workera
-        const registration = await navigator.serviceWorker.register('/sw.js');
-        console.log('Service Worker zarejestrowany pomyślnie:', registration);
-
-        // Zapytanie o zgodę na powiadomienia
-        let permission = Notification.permission;
-        if (permission === 'default') {
-          permission = await Notification.requestPermission();
-        }
-
-        if (permission !== 'granted') {
-          console.log('Użytkownik nie wyraził zgody na powiadomienia.');
-          return;
-        }
-
-        // Pobranie klucza VAPID publicznego
-        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidPublicKey) {
-          console.warn('Brak klucza VAPID publicznego w konfiguracji (NEXT_PUBLIC_VAPID_PUBLIC_KEY).');
-          return;
-        }
-
-        const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
-
-        // Sprawdzenie czy subskrypcja już istnieje
-        let subscription = await registration.pushManager.getSubscription();
-
-        if (!subscription) {
-          // Tworzenie nowej subskrypcji
-          subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey
-          });
-        }
-
-        // Przesłanie subskrypcji do bazy danych
-        const subData = JSON.parse(JSON.stringify(subscription));
-        const res = await saveSubscriptionAction({
-          endpoint: subData.endpoint,
-          keys: {
-            p256dh: subData.keys.p256dh,
-            auth: subData.keys.auth
-          }
-        });
-
-        if (res.success) {
-          console.log('Pomyślnie zarejestrowano powiadomienia Push na urządzeniu.');
-        } else {
-          console.error('Błąd podczas zapisywania subskrypcji push:', res.error);
-        }
-      } catch (err) {
-        console.error('Błąd rejestracji Web Push:', err);
-      }
-    }
-
-    // Wywołaj rejestrację z opóźnieniem, aby nie blokować ładowania strony
-    const timer = setTimeout(() => {
-      registerPush();
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [status, session]);
-
-  // Nasłuchuje zdarzeń NAVIGATE wysłanych z sw.js (po kliknięciu powiadomienia)
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -109,5 +39,106 @@ export function PushRegister() {
     return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
   }, []);
 
-  return null;
+  useEffect(() => {
+    if (status !== 'authenticated' || !session?.user) return;
+
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+
+    if (ios && !standalone) {
+      setPrompt('ios');
+      return;
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      setPrompt('denied');
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      void subscribe();
+      return;
+    }
+
+    setPrompt('ask');
+  }, [status, session]);
+
+  async function subscribe() {
+    setBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      const { key } = await getVapidPublicKeyAction();
+      if (!key) {
+        setPrompt('nokey');
+        return;
+      }
+
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key),
+        });
+      }
+
+      const subData = JSON.parse(JSON.stringify(subscription));
+      const res = await saveSubscriptionAction({
+        endpoint: subData.endpoint,
+        keys: {
+          p256dh: subData.keys.p256dh,
+          auth: subData.keys.auth,
+        },
+      });
+
+      if (!res.success) {
+        console.error('Błąd podczas zapisywania subskrypcji push:', res.error);
+        return;
+      }
+      setPrompt(null);
+    } catch (err) {
+      console.error('Błąd rejestracji Web Push:', err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function enable() {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      setPrompt('denied');
+      return;
+    }
+    await subscribe();
+  }
+
+  if (!prompt) return null;
+
+  const text = prompt === 'ios'
+    ? 'Na iPhonie dodaj stronę do ekranu początkowego i otwórz ją stamtąd. Safari w karcie nie przyjmuje powiadomień push.'
+    : prompt === 'denied'
+      ? 'Powiadomienia są zablokowane w przeglądarce. Włącz je w ustawieniach strony.'
+      : prompt === 'nokey'
+        ? 'Serwer nie ma klucza powiadomień. Ustaw klucze VAPID i przebuduj aplikację.'
+        : 'Włącz powiadomienia, żeby dostawać grafik i alerty na tym urządzeniu.';
+
+  return (
+    <div className="fixed inset-x-3 bottom-3 z-50 mx-auto flex max-w-lg flex-col gap-3 rounded-xl border border-white/10 bg-[#1a1a1a] p-4 sm:flex-row sm:items-center" style={{ marginBottom: 'env(safe-area-inset-bottom)' }}>
+      <p className="text-sm text-[#e0e0e0]">{text}</p>
+      {prompt === 'ask' && (
+        <button
+          type="button"
+          onClick={() => void enable()}
+          disabled={busy}
+          className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
+        >
+          {busy ? 'Włączanie...' : 'Włącz'}
+        </button>
+      )}
+    </div>
+  );
 }

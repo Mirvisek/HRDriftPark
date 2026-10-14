@@ -130,7 +130,7 @@ export default function AdminDashboardPage() {
       if (res.success) {
         setCustomPushStatus({
           type: 'success',
-          text: `Pomyślnie wysłano powiadomienie do ${customPushUserId === 0 ? 'wszystkich' : 'wybranego pracownika'}!`
+          text: `Wysłano powiadomienie na ${res.count ?? 0} urządzeń.`
         });
         setCustomPushTitle('');
         setCustomPushMessage('');

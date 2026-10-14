@@ -412,9 +412,9 @@ export default function TimesheetPage() {
                 try {
                   const res = await testPushNotificationAction();
                   if (res.success) {
-                    alert("Pomyślnie wysłano testowe powiadomienie push!");
+                    alert("Wysłano testowe powiadomienie na to urządzenie.");
                   } else {
-                    alert("Nie udało się wysłać powiadomienia. Upewnij się, że wyraziłeś zgodę na powiadomienia w tej przeglądarce oraz zarejestrowałeś urządzenie (subskrypcja następuje automatycznie w tle po 2 sekundach od zalogowania).");
+                    alert(res.error || "Nie udało się wysłać powiadomienia.");
                   }
                 } catch (e) {
                   alert("Błąd połączenia z serwerem.");

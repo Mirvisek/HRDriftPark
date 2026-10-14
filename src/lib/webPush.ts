@@ -4,15 +4,17 @@ import { pushSubscriptions, settings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 // Konfiguracja VAPID
-const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
-const privateKey = process.env.VAPID_PRIVATE_KEY || '';
-
-if (publicKey && privateKey) {
-  webpush.setVapidDetails(
-    'mailto:admin@driftparkextreme.pl',
-    publicKey,
-    privateKey
-  );
+function vapidKeys() {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
+  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+  if (publicKey && privateKey) {
+    webpush.setVapidDetails(
+      'mailto:admin@driftparkextreme.pl',
+      publicKey,
+      privateKey
+    );
+  }
+  return { publicKey, privateKey };
 }
 
 export async function sendPushNotification(
@@ -28,6 +30,7 @@ export async function sendPushNotification(
     return { success: true, mocked: true };
   }
 
+  const { publicKey, privateKey } = vapidKeys();
   if (!publicKey || !privateKey) {
     console.warn(`[Web Push] Brak skonfigurowanych kluczy VAPID. Powiadomienie nie zostało wysłane.`);
     return { success: false, error: 'Brak kluczy VAPID' };

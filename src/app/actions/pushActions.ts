@@ -7,6 +7,10 @@ import { auth } from "@/auth";
 import { sendSystemNotification } from "./userActions";
 import { hasPermission } from "@/lib/permissions";
 
+export async function getVapidPublicKeyAction() {
+  return { key: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "" };
+}
+
 export async function saveSubscriptionAction(sub: {
   endpoint: string;
   keys: {
@@ -91,10 +95,13 @@ export async function testPushNotificationAction() {
     const { sendPushNotification } = await import("@/lib/webPush");
     const res = await sendPushNotification(
       userId,
-      "Test Powiadomień Push 🏎️",
-      "Powiadomienia push na Twoim telefonie działają prawidłowo!",
+      "Test powiadomień",
+      "Powiadomienia push na tym urządzeniu działają.",
       "/timesheet"
     );
+    if (res.success && !res.sentCount) {
+      return { success: false, error: "To konto nie ma zapisanego urządzenia. Włącz powiadomienia w przeglądarce i odśwież stronę." };
+    }
     return res;
   } catch (e: any) {
     console.error("[Push Test Error] Wysyłanie:", e);
@@ -124,18 +131,25 @@ export async function sendCustomPushNotificationAction(
     if (userId === 0) {
       const allUsers = await db.select({ id: users.id }).from(users);
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+      let sent = 0;
       for (const u of allUsers) {
         await sendSystemNotification(u.id, message);
-        await sendPushNotification(u.id, title, message, "/");
+        const pushRes = await sendPushNotification(u.id, title, message, "/");
+        sent += pushRes.sentCount || 0;
         await delay(100);
       }
-      console.log(`[Push Custom] Wysłano powiadomienie grupowe do wszystkich pracowników.`);
-      return { success: true, count: allUsers.length };
+      if (sent === 0) {
+        return { success: false, error: "Żadne konto nie ma włączonych powiadomień na urządzeniu." };
+      }
+      return { success: true, count: sent };
     } else {
       await sendSystemNotification(userId, message);
       const pushRes = await sendPushNotification(userId, title, message, "/");
-      console.log(`[Push Custom] Wysłano powiadomienie spersonalizowane do użytkownika ID: ${userId}`);
-      return { success: true, count: 1 };
+      if (!pushRes.success) return { success: false, error: pushRes.error || "Nie udało się wysłać powiadomienia." };
+      if (!pushRes.sentCount) {
+        return { success: false, error: "Ten pracownik nie ma zapisanego urządzenia." };
+      }
+      return { success: true, count: pushRes.sentCount };
     }
   } catch (e: any) {
     console.error("[Push Custom Error] Błąd wysyłania:", e);
