@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { getWorkSchedule, saveWorkScheduleEntry, generateSchedule, ScheduleEntry, checkSchedulePublishedAction, publishScheduleAction } from '@/app/actions/scheduleActions';
+import { getWorkSchedule, saveWorkScheduleEntry, generateSchedule, ScheduleEntry, checkSchedulePublishedAction, publishScheduleAction, deleteScheduleMonthAction } from '@/app/actions/scheduleActions';
 import { getEmployees, UserEntry } from '@/app/actions/userActions';
-import { CalendarDays, Save, Sparkles, RefreshCw, CheckCircle, ShieldAlert, AlertTriangle, Send, FileText, Check, Download } from 'lucide-react';
+import { CalendarDays, Save, Sparkles, RefreshCw, CheckCircle, ShieldAlert, AlertTriangle, Send, FileText, Check, Download, Trash2 } from 'lucide-react';
 
 export default function SchedulePage() {
   const { data: session } = useSession();
@@ -14,6 +14,7 @@ export default function SchedulePage() {
   } : null;
 
   const isManagerOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'technik';
+  const canDeleteSchedule = currentUser?.role === 'owner' || currentUser?.role === 'manager';
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [scheduleList, setScheduleList] = useState<ScheduleEntry[]>([]);
@@ -23,6 +24,7 @@ export default function SchedulePage() {
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null);
   const [isPublished, setIsPublished] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1; // 1-12
@@ -239,6 +241,32 @@ export default function SchedulePage() {
     setCurrentDate(new Date(year, month, 1));
   };
 
+  const handleDeleteSchedule = async () => {
+    const label = `${monthNames[month]} ${year}`;
+    if (!window.confirm(`Usunąć grafik na ${label}? Obsada tego miesiąca zniknie, a status wróci do szkicu. Potem możesz ułożyć go od nowa.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    setStatusMsg({ type: 'warning', text: 'Usuwanie grafiku...' });
+    const res = await deleteScheduleMonthAction(year, month);
+    setDeleting(false);
+
+    if (res.success) {
+      try {
+        localStorage.removeItem(`schedule_${year}_${month}`);
+      } catch (e) {}
+      setIsPublished(false);
+      await fetchSchedule();
+      setStatusMsg({
+        type: 'success',
+        text: `Grafik na ${label} został usunięty. Możesz wygenerować go ponownie albo uzupełnić ręcznie.`
+      });
+    } else {
+      setStatusMsg({ type: 'error', text: res.error || 'Nie udało się usunąć grafiku.' });
+    }
+  };
+
   const prevMonth = () => {
     setCurrentDate(new Date(year, month - 2, 1));
   };
@@ -267,8 +295,8 @@ export default function SchedulePage() {
           {isManagerOrOwner && (
             <button
               onClick={handleAutoGenerate}
-              disabled={generating || loading || publishing || isPublished}
-              title={isPublished ? "Opublikowanego grafiku nie da się wygenerować ponownie" : "Ułóż grafik ponownie na podstawie dyspozycyjności"}
+              disabled={generating || loading || publishing || deleting || isPublished}
+              title={isPublished ? "Najpierw usuń opublikowany grafik" : "Ułóż grafik ponownie na podstawie dyspozycyjności"}
               className="px-4 py-2 bg-gradient-to-r from-brand-gold to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-brand-dark font-extrabold text-xs rounded-lg shadow-lg hover:shadow-brand-gold/10 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
@@ -279,11 +307,22 @@ export default function SchedulePage() {
           {isManagerOrOwner && !isPublished && (
             <button
               onClick={handlePublishSchedule}
-              disabled={publishing || loading || generating}
+              disabled={publishing || loading || generating || deleting}
               className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-extrabold text-xs rounded-lg shadow-lg hover:shadow-green-500/10 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {publishing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               <span>Opublikuj grafik</span>
+            </button>
+          )}
+
+          {canDeleteSchedule && (
+            <button
+              onClick={handleDeleteSchedule}
+              disabled={deleting || loading || generating || publishing}
+              className="min-h-11 px-4 py-2 bg-[#1a1a1a] hover:bg-red-950/40 border border-red-500/30 text-red-300 font-bold text-xs rounded-lg transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              <span>Usuń grafik</span>
             </button>
           )}
 

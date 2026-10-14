@@ -547,3 +547,49 @@ export async function publishScheduleAction(year: number, month: number) {
     return { success: false, error: "Błąd bazy danych podczas publikacji grafiku." };
   }
 }
+
+export async function deleteScheduleMonthAction(year: number, month: number) {
+  const session = await auth();
+  if (!session?.user) return { success: false, error: "Brak autoryzacji" };
+
+  const role = (session.user as any).role;
+  if (role !== "owner" && role !== "manager") {
+    return { success: false, error: "Tylko właściciel i menedżer mogą usunąć grafik." };
+  }
+
+  const monthStr = String(month).padStart(2, "0");
+  const lastDay = new Date(year, month, 0).getDate();
+  const startDate = `${year}-${monthStr}-01`;
+  const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}`;
+  const pubKey = `schedule_published_${year}_${monthStr}`;
+  const userIsDemo = (session.user as any).isDemo === true;
+  const executorId = Number((session.user as any).id) || null;
+
+  try {
+    await db
+      .delete(workSchedule)
+      .where(
+        and(
+          gte(workSchedule.date, startDate),
+          lte(workSchedule.date, endDate),
+          eq(workSchedule.isDemo, userIsDemo)
+        )
+      );
+
+    await db.delete(settings).where(eq(settings.key, pubKey));
+
+    await logAuditEvent(
+      executorId,
+      "work_schedule",
+      0,
+      "DELETE",
+      { year, month },
+      null
+    );
+
+    return { success: true };
+  } catch (e) {
+    console.error("Błąd usuwania grafiku:", e);
+    return { success: false, error: "Nie udało się usunąć grafiku." };
+  }
+}
