@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { pdf } from '@react-pdf/renderer';
-import { SchedulePDFDocument } from '@/components/SchedulePDF';
 import { getWorkSchedule, saveWorkScheduleEntry, generateSchedule, ScheduleEntry, checkSchedulePublishedAction, publishScheduleAction } from '@/app/actions/scheduleActions';
 import { getEmployees, UserEntry } from '@/app/actions/userActions';
 import { CalendarDays, Save, Sparkles, RefreshCw, CheckCircle, ShieldAlert, AlertTriangle, Send, FileText, Check, Download } from 'lucide-react';
@@ -269,7 +267,8 @@ export default function SchedulePage() {
           {isManagerOrOwner && (
             <button
               onClick={handleAutoGenerate}
-              disabled={generating || loading || publishing}
+              disabled={generating || loading || publishing || isPublished}
+              title={isPublished ? "Opublikowanego grafiku nie da się wygenerować ponownie" : "Ułóż grafik ponownie na podstawie dyspozycyjności"}
               className="px-4 py-2 bg-gradient-to-r from-brand-gold to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-brand-dark font-extrabold text-xs rounded-lg shadow-lg hover:shadow-brand-gold/10 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
@@ -291,6 +290,10 @@ export default function SchedulePage() {
           <button
             onClick={async () => {
               try {
+                const [{ pdf }, { SchedulePDFDocument }] = await Promise.all([
+                  import('@react-pdf/renderer'),
+                  import('@/components/SchedulePDF'),
+                ]);
                 const doc = <SchedulePDFDocument monthName={monthNames[month]} year={year} entries={scheduleList} />;
                 const blob = await pdf(doc).toBlob();
                 const url = URL.createObjectURL(blob);

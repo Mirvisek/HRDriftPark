@@ -372,15 +372,15 @@ export async function generateSchedule(year: number, month: number) {
     const startDate = `${year}-${monthStr}-01`;
     const endDate = `${year}-${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
 
-    // Sprawdź czy grafik na ten miesiąc został już wygenerowany w całości (np. ma więcej niż 10 dni obsady)
-    const existingSchedule = await db
-      .select()
-      .from(workSchedule)
-      .where(and(gte(workSchedule.date, startDate), lte(workSchedule.date, endDate)))
-      .limit(11);
+    const pubKey = `schedule_published_${year}_${monthStr}`;
+    const pubSetting = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, pubKey))
+      .limit(1);
 
-    if (existingSchedule.length > 10) {
-      return { success: false, error: "Grafik na ten miesiąc został już wygenerowany. Wprowadzaj ewentualne poprawki bezpośrednio w tabeli." };
+    if (pubSetting.length > 0 && pubSetting[0].value === 'true') {
+      return { success: false, error: "Grafik na ten miesiąc jest już opublikowany. Nie można go wygenerować ponownie." };
     }
 
     const availabilities = await db
@@ -456,10 +456,6 @@ export async function generateSchedule(year: number, month: number) {
         leadName: leadUserId ? userMap.get(leadUserId) : undefined,
         supportName: supportUserId ? userMap.get(supportUserId) : undefined,
       });
-
-      // Powiadomienia (tylko systemowe, a te zostaną ograniczone w UI lub wyciszone)
-      if (leadUserId) await sendSystemNotification(leadUserId, `Automatyczny grafik: Zostałeś przypisany jako Osoba Prowadząca na dzień ${dateStr}.`);
-      if (supportUserId) await sendSystemNotification(supportUserId, `Automatyczny grafik: Zostałeś przypisany jako Osoba Wspomagająca na dzień ${dateStr}.`);
     }
 
     return { success: true, data: generatedEntries };
